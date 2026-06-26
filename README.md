@@ -43,39 +43,12 @@ wrangler deploy
 ### 3. 前端部署
 
 修改 `js/api.js` 第一行的 `API_BASE` 为你的 Worker 域名：
-
-```js
-const API_BASE = "https://your-worker.workers.dev";
-```
-
 推送到 GitHub，在 Settings → Pages 启用。
 
 ### 4. 创建学员
 
 在 Worker 部署后，可以通过管理端添加学员，或直接在 D1 执行 SQL：
 
-```sql
-INSERT INTO users (phone, name, code_hash, is_admin, code_type)
-VALUES ('13800001111', '张三', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', 0, 'permanent');
-```
-
-> 其中 `code_hash` 为 SHA-256("123456")，管理员可在后台为每位学员设置专属校验码。
-
-## 默认凭据
-
-| 角色 | 账号 | 密码/校验码 |
-|------|------|-------------|
-| 管理员 | admin | text123 |
-| 学员 | 11位手机号 | 123456（默认，管理员可修改） |
-
-## 管理员密码哈希
-
-`text123` 的 SHA-256: `99c24b7d36d81ac8c58e05e80d8f01ad0544bbcef5b9f04b20fe6666b2af47ae`
-
-可在 D1 中修改：
-```sql
-UPDATE admin_settings SET value = '<new_sha256>' WHERE key = 'admin_password_hash';
-```
 
 ## 项目结构
 
