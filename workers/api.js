@@ -1,9 +1,8 @@
 // HIU-ACM 集训管理系统 Cloudflare Worker API
 // 部署: wrangler deploy
 
-const JWT_SECRET = "hiu-acm-2026-secret-key-change-in-production";
-
 // ==================== 工具函数 ====================
+let JWT_SECRET = "hiu-acm-2026-secret-key-change-in-production";
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -505,6 +504,7 @@ async function handleRequest(request, db) {
 export default {
   async fetch(request, env) {
     try {
+      if (env.JWT_SECRET) JWT_SECRET = env.JWT_SECRET;
       return await handleRequest(request, env.DB);
     } catch (e) {
       return err("服务器内部错误: " + e.message, 500);
