@@ -1,13 +1,3 @@
----
-AIGC:
-    Label: "1"
-    ContentProducer: 001191440300708461136T1XGW3
-    ProduceID: 47b669680a5d8ee44201d9f85830a291_434bb9de717c11f1897e5254002afed2
-    ReservedCode1: BsN7ZVrcr/0L+LVRsL5YIWjznm2uiyAcT2/rJHa4Qgn7L1S/3gamgqI0GyjeUE62xSt7dzF3ECrTY7cB+yshQymd6mEkyLeNiwmrM+qiMICJbClBWfV5YieK21fKh85AfXFb3fiZdSuRzPjfg7BaTaei4uqhsSt0gHQcIhFZtBJDu8Hhbm/cWG5PaZM=
-    ContentPropagator: 001191440300708461136T1XGW3
-    PropagateID: 47b669680a5d8ee44201d9f85830a291_434bb9de717c11f1897e5254002afed2
-    ReservedCode2: BsN7ZVrcr/0L+LVRsL5YIWjznm2uiyAcT2/rJHa4Qgn7L1S/3gamgqI0GyjeUE62xSt7dzF3ECrTY7cB+yshQymd6mEkyLeNiwmrM+qiMICJbClBWfV5YieK21fKh85AfXFb3fiZdSuRzPjfg7BaTaei4uqhsSt0gHQcIhFZtBJDu8Hhbm/cWG5PaZM=
----
 
 # HIU-ACM 假期算法集训管理系统
 
