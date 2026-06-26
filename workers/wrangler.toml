@@ -5,10 +5,10 @@ compatibility_date = "2024-12-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "hiu-acm-db"
-database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+database_id = "8168e21e-383d-4d99-b2aa-b965e8b476f8"
 
 [vars]
-JWT_SECRET = ""
+JWT_SECRET = "70b017a81bdd70d4e43f13d6c23635b847ccd04feafd1467f17f581939b0e1e6"
 
 [env.production]
 routes = [

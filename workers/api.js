@@ -463,6 +463,9 @@ async function handleRequest(request, db) {
     }
   }
 
+  // 健康检查
+  if (path === "/api/health") return json({ status: "ok", db: !!db, time: Date.now() });
+
   // 不需要认证的路由
   if (path === "/api/login" && method === "POST") return handleLogin(db, body);
 

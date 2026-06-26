@@ -1,6 +1,6 @@
 // HIU-ACM API Client - 替代本地 IndexedDB
 // 所有数据操作通过 Cloudflare Worker API
-const API_BASE = "https://api.hiu-acm.workers.dev";
+const API_BASE = "https://hiu-acm-api.wangyiyouxiang0719.workers.dev";
 
 const Api = {
   token: null,
