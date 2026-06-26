@@ -1,0 +1,16 @@
+name = "hiu-acm-api"
+main = "api.js"
+compatibility_date = "2024-12-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hiu-acm-db"
+database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+[vars]
+JWT_SECRET = ""
+
+[env.production]
+routes = [
+  { pattern = "api.hiu-acm.workers.dev/*", zone_id = "" }
+]
