@@ -77,6 +77,16 @@ const Api = {
     return this.fetch(`/api/daily-tasks/history?limit=${limit}`);
   },
 
+  // ============ 个人信息 ============
+  async updateAvatar(avatarUrl) {
+    return this.fetch("/api/me", { method: "PUT", body: { avatarUrl } });
+  },
+
+  // ============ 小组展示 ============
+  async getGroupDetail() {
+    return this.fetch("/api/group");
+  },
+
   // ============ 管理端 ============
   async adminDashboard() {
     return this.fetch("/api/admin/dashboard");
@@ -119,6 +129,41 @@ const Api = {
       method: "POST",
       body: data
     });
+  },
+
+  async adminUpdateGroup(id, data) {
+    return this.fetch(`/api/admin/groups/${id}`, {
+      method: "PUT",
+      body: data
+    });
+  },
+
+  async adminDeleteGroup(id) {
+    return this.fetch(`/api/admin/groups/${id}`, {
+      method: "DELETE"
+    });
+  },
+
+  async adminUsersSimple() {
+    return this.fetch("/api/admin/users/simple");
+  },
+
+  async adminBatchUsers(users) {
+    return this.fetch("/api/admin/users/batch", {
+      method: "POST",
+      body: users
+    });
+  },
+
+  async adminCompleteAll(phone, problemIds, taskDate) {
+    return this.fetch(`/api/admin/users/${phone}/complete-all`, {
+      method: "POST",
+      body: { problemIds, taskDate }
+    });
+  },
+
+  async adminUserLoginLogs(phone) {
+    return this.fetch(`/api/admin/login-logs/${phone}`);
   },
 
   async adminLoginLogs() {

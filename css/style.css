@@ -190,7 +190,7 @@ select.input-field { padding-left:12px; cursor:none; appearance:none;
 }
 .admin-nav .nav-brand span { color:var(--danger); }
 
-.app-main { flex:1; padding:24px; max-width:1400px; margin:0 auto; width:100%; }
+.app-main { flex:1; padding:24px; max-width:1400px; margin:0 auto; width:100%; overflow-y:auto; max-height:calc(100vh - 60px); }
 
 .section-header { margin-bottom:20px; }
 .section-header h2 { font-size:24px; font-weight:700; color:var(--text); }
@@ -228,7 +228,7 @@ select.input-field { padding-left:12px; cursor:none; appearance:none;
 .problem-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:12px; margin-bottom:20px; }
 
 .problem-card {
-  padding:16px; cursor:none; position:relative; overflow:hidden;
+  padding:16px; cursor:none; position:relative; overflow:hidden; word-break:break-word; overflow-wrap:break-word;
   animation:fadeInUp 0.3s ease both;
 }
 .problem-card::before {
@@ -363,6 +363,16 @@ select.input-field { padding-left:12px; cursor:none; appearance:none;
 
 .completed-by-cell { font-size:12px; color:var(--text-secondary); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ua-cell { font-size:11px; color:var(--text-secondary); max-width:250px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* 小组展示 */
+.group-rank-table td { padding:10px 12px; font-size:13px; }
+.group-rank-table .leader-row { background:rgba(255,193,7,0.04); }
+.task-check-label { display:inline-flex !important; align-items:center; gap:2px; user-select:none; }
+.task-check-label input[type="checkbox"] { accent-color:var(--accent); margin:0; }
+
+/* 日志详情行 */
+.log-row:hover { background:rgba(255,255,255,0.03); }
+.log-detail-row td { font-size:12px; }
 .empty-text { color:var(--text-secondary); font-size:13px; text-align:center; padding:20px; }
 
 @media (max-width: 768px) {

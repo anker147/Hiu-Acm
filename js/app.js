@@ -25,16 +25,18 @@ const App = {
   },
 
   async loadData() {
-    const [problems, stats, todayTasks] = await Promise.all([
+    const [problems, stats, todayTasks, me] = await Promise.all([
       Api.getProblems(),
       Api.getProblemStats(),
-      Api.getTodayTasks()
+      Api.getTodayTasks(),
+      Api.getMe().catch(() => null)
     ]);
     this.problems = problems;
     const statMap = {};
     for (const s of stats) statMap[s.problem_id] = s;
     this.stats = statMap;
     this.todayTasks = todayTasks;
+    if (me) this.user = { ...this.user, ...me };
   },
 
   showView(view) {
@@ -407,9 +409,14 @@ const App = {
 
   renderStatCard(p) {
     const stat = this.stats[p.nowcoder_id] || {};
+    // BUG1: 题库浏览中标记已选题
+    const inToday = this.todayTasks && this.todayTasks.problems.includes(p.nowcoder_id);
     return `
-      <div class="problem-card glass-card">
-        <div class="prob-header"><span class="prob-id">#${p.nowcoder_id}</span></div>
+      <div class="problem-card glass-card ${inToday ? 'selected' : ''}">
+        <div class="prob-header">
+          <span class="prob-id">#${p.nowcoder_id}</span>
+          ${inToday ? '<span class="new-badge" style="background:rgba(45,212,191,0.2);color:var(--accent)">已选</span>' : ''}
+        </div>
         <div class="prob-title">${p.title}</div>
         <div class="prob-tags">${(p.tags || []).map(t => `<span class="prob-tag">${t}</span>`).join("") || '<span class="prob-tag no-tag">未分类</span>'}</div>
         <div class="prob-stats"><span>被选 ${stat.selectedCount||0} 次</span><span>完成 ${stat.completedCount||0} 次</span></div>
@@ -476,6 +483,7 @@ const App = {
   // ==================== 个人信息 ====================
   renderProfile() {
     const groupInfo = this.user.group || "未分组";
+    const avatarUrl = this.user.avatarUrl || "";
     const el = document.getElementById("view-dashboard");
     el.innerHTML = `
       <div class="app-layout">
@@ -485,6 +493,7 @@ const App = {
             <a class="nav-link" onclick="App.renderTodayTasksOrSelection()">${this.todayTasks ? '今日题单' : '选择题单'}</a>
             <a class="nav-link" onclick="App.renderBank()">题库浏览</a>
             <a class="nav-link" onclick="App.renderHistory()">历史记录</a>
+            <a class="nav-link" onclick="App.renderGroup()">小组展示</a>
             <a class="nav-link active" onclick="App.renderProfile()">个人信息</a>
           </div>
           <div class="nav-user">
@@ -497,16 +506,17 @@ const App = {
           <div class="section-header"><h2>个人信息</h2></div>
           <div class="profile-card glass-card">
             <div class="profile-avatar-section">
-              <div class="profile-avatar-large">${this.user.name[0]}</div>
+              <div class="profile-avatar-large">${avatarUrl ? `<img src="${avatarUrl}" alt="avatar">` : this.user.name[0]}</div>
               <div class="profile-avatar-actions">
-                <button class="btn-small" onclick="document.getElementById('avatarInput').click()">更换头像</button>
-                <input type="file" id="avatarInput" accept="image/*" style="display:none" onchange="App.uploadAvatar(this)">
+                <input type="text" id="avatarUrlInput" class="input-field" placeholder="输入头像图片URL" value="${avatarUrl}" style="width:260px;font-size:13px">
+                <button class="btn-small" onclick="App.saveAvatar()">保存头像</button>
+                <span style="font-size:11px;color:var(--text-secondary)">支持任意图片URL</span>
               </div>
             </div>
             <div class="profile-details">
               <div class="profile-row"><span class="p-label">姓名</span><span>${this.user.name}</span></div>
               <div class="profile-row"><span class="p-label">手机号</span><span>${this.user.phone}</span></div>
-              <div class="profile-row"><span class="p-label">身份</span><span>学员</span></div>
+              <div class="profile-row"><span class="p-label">身份</span><span>${this.user.isLeader ? '组长' : '学员'}</span></div>
               <div class="profile-row"><span class="p-label">小组</span><span>${groupInfo}</span></div>
             </div>
           </div>
@@ -515,16 +525,79 @@ const App = {
     `;
   },
 
-  async uploadAvatar(input) {
-    const file = input.files[0];
-    if (!file) return;
-    // 头像本地 base64 存储（免费方案）
-    const reader = new FileReader();
-    reader.onload = () => {
-      alert("头像已更新（本地生效）");
+  async saveAvatar() {
+    const url = document.getElementById("avatarUrlInput").value.trim();
+    try {
+      await Api.updateAvatar(url);
+      this.user.avatarUrl = url;
+      alert("头像已更新");
       this.renderProfile();
-    };
-    reader.readAsDataURL(file);
+    } catch (e) { alert(e.message); }
+  },
+
+  // ==================== 小组展示 (OPT4) ====================
+  async renderGroup() {
+    const el = document.getElementById("view-dashboard");
+    el.innerHTML = `<div class="app-layout">
+      <nav class="app-nav">
+        <div class="nav-brand"><span style="font-size:20px">🏠</span> HIU-ACM</div>
+        <div class="nav-links">
+          <a class="nav-link" onclick="App.renderTodayTasksOrSelection()">${this.todayTasks ? '今日题单' : '选择题单'}</a>
+          <a class="nav-link" onclick="App.renderBank()">题库浏览</a>
+          <a class="nav-link" onclick="App.renderHistory()">历史记录</a>
+          <a class="nav-link active" onclick="App.renderGroup()">小组展示</a>
+          <a class="nav-link" onclick="App.renderProfile()">个人信息</a>
+        </div>
+        <div class="nav-user">
+          <div class="nav-user-avatar">${this.user.name[0]}</div>
+          <span class="nav-user-name">${this.user.name}</span>
+          <button class="btn-text" onclick="App.handleLogout()">退出</button>
+        </div>
+      </nav>
+      <main class="app-main">
+        <div class="section-header"><h2>小组展示</h2></div>
+        <div id="groupPageContent" class="glass-card" style="padding:24px"><p style="text-align:center;color:var(--text-secondary)">加载中...</p></div>
+      </main>
+    </div>`;
+    try {
+      const data = await Api.getGroupDetail();
+      App.renderGroupContent(data);
+    } catch (e) {
+      document.getElementById("groupPageContent").innerHTML = `<p style="text-align:center;color:var(--text-secondary);padding:40px">${e.message}</p>`;
+    }
+  },
+
+  renderGroupContent(data) {
+    const el = document.getElementById("groupPageContent");
+    const rankMedals = ['🥇', '🥈', '🥉'];
+    let rows = data.members.map((m, i) => {
+      const medal = i < 3 ? rankMedals[i] : '';
+      return `<tr class="group-rank-row ${m.isLeader ? 'leader-row' : ''}">
+        <td>${medal} ${i + 1}</td>
+        <td><strong>${m.name}</strong>${m.isLeader ? ' <span class="new-badge" style="background:rgba(255,193,7,0.2);color:#ffc107">组长</span>' : ''}</td>
+        <td>${m.total}</td>
+        <td>${m.done}</td>
+        <td>
+          <div class="progress-bar"><div class="progress-fill" style="width:${m.rate}%"></div></div>
+          <span style="font-size:12px;color:var(--text-secondary)">${m.rate}%</span>
+        </td>
+      </tr>`;
+    }).join("");
+
+    el.innerHTML = `
+      <div class="group-page-content">
+        <div class="group-header" style="margin-bottom:20px">
+          <h3 style="margin:0">${data.groupName}</h3>
+          <p style="color:var(--text-secondary);margin:4px 0 0">组长: ${data.members.find(m=>m.isLeader)?.name||"暂无"}</p>
+        </div>
+        <div class="table-wrapper" style="overflow-x:auto">
+          <table class="data-table group-rank-table">
+            <thead><tr><th>排名</th><th>姓名</th><th>总题数</th><th>已完成</th><th>完成率</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
   },
 
   handleLogout() {

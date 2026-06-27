@@ -140,7 +140,9 @@ const Admin = {
         <h2>用户管理</h2>
         <div class="section-toolbar">
           <button class="btn-primary" onclick="Admin.showAddUser()">+ 添加用户</button>
+          <button class="btn-primary" onclick="Admin.showBatchImport()">+ 批量导入</button>
         </div>
+        <div id="batchImportPanel"></div>
         <div style="overflow-x:auto">
           <table class="data-table full-width">
             <thead>
@@ -257,21 +259,26 @@ const Admin = {
     try {
       const tasks = await Api.adminUserTasks(phone);
       panel.innerHTML = `
-        <div class="edit-form glass-card" style="max-width:700px">
+        <div class="edit-form glass-card" style="max-width:780px">
           <h3>${name} 的题单记录</h3>
+          <div style="margin-bottom:12px">
+            <button class="btn-small" onclick="Admin.batchCompleteAll('${phone}')">一键标记所选完成</button>
+            <button class="btn-small" onclick="Admin.selectAllProblems('${phone}')">全选</button>
+            <button class="btn-small" onclick="Admin.deselectAllProblems('${phone}')">取消全选</button>
+          </div>
           ${tasks.length === 0 ? '<p class="empty-text">暂无记录</p>' : tasks.map(t => `
-            <div style="margin-bottom:12px;padding:12px;background:rgba(255,255,255,0.02);border-radius:8px">
+            <div class="task-record" style="margin-bottom:12px;padding:12px;background:rgba(255,255,255,0.02);border-radius:8px">
               <div style="display:flex;justify-content:space-between;margin-bottom:4px">
                 <strong>${t.task_date}</strong>
                 <span>${t.completed.length}/${t.problems.length}</span>
               </div>
-              <div style="font-size:12px;color:var(--text-secondary)">
-                ${t.problems.map(id => `<span style="margin-right:8px;color:${t.completed.includes(id)?'var(--success)':'inherit'}">#${id}</span>`).join("")}
-              </div>
-              <div style="margin-top:8px">
-                <input type="text" class="input-field" placeholder="题目ID" id="taskProblemId_${t.id}" style="width:120px;display:inline;font-size:12px;padding:4px 8px">
-                <button class="btn-small" onclick="Admin.toggleUserTaskComplete('${phone}','${t.task_date}',document.getElementById('taskProblemId_${t.id}').value,true)">标记完成</button>
-                <button class="btn-small btn-danger" onclick="Admin.toggleUserTaskComplete('${phone}','${t.task_date}',document.getElementById('taskProblemId_${t.id}').value,false)">取消完成</button>
+              <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">
+                ${t.problems.map(id => `
+                  <label class="task-check-label" style="margin-right:10px;cursor:pointer;color:${t.completed.includes(id)?'var(--success)':'inherit'}">
+                    <input type="checkbox" class="task-prob-check" value="${id}" data-date="${t.task_date}" ${t.completed.includes(id)?'disabled':''}>
+                    #${id}
+                  </label>
+                `).join("")}
               </div>
             </div>
           `).join("")}
@@ -281,11 +288,31 @@ const Admin = {
     } catch (e) { panel.innerHTML = `<p style="color:var(--danger)">加载失败: ${e.message}</p>`; }
   },
 
-  async toggleUserTaskComplete(phone, date, problemId, completed) {
-    if (!problemId) { alert("请输入题目ID"); return; }
+  selectAllProblems(phone) {
+    document.querySelectorAll('.task-prob-check:not([disabled])').forEach(cb => cb.checked = true);
+  },
+  deselectAllProblems(phone) {
+    document.querySelectorAll('.task-prob-check:not([disabled])').forEach(cb => cb.checked = false);
+  },
+
+  async batchCompleteAll(phone) {
+    const checked = document.querySelectorAll('.task-prob-check:checked');
+    if (checked.length === 0) { alert("请先勾选题目"); return; }
+    // 按日期分组
+    const byDate = {};
+    checked.forEach(cb => {
+      const date = cb.dataset.date;
+      if (!byDate[date]) byDate[date] = [];
+      byDate[date].push(parseInt(cb.value));
+    });
     try {
-      await Api.adminUpdateUser(phone, { completedDate: date, problemId, completed });
-      alert("已更新");
+      let totalSuccess = 0, totalSkipped = 0;
+      for (const [date, ids] of Object.entries(byDate)) {
+        const res = await Api.adminCompleteAll(phone, ids, date);
+        totalSuccess += res.success.length;
+        totalSkipped += res.skipped.length;
+      }
+      alert(`完成 ${totalSuccess} 题${totalSkipped > 0 ? `，跳过 ${totalSkipped} 题（已标记）` : ''}`);
       this.showUserTasks(phone, "");
     } catch (e) { alert(e.message); }
   },
@@ -324,15 +351,18 @@ const Admin = {
     `;
   },
 
-  showAddGroup() {
+  async showAddGroup() {
     const panel = document.getElementById("groupEditPanel");
     if (!panel) return;
+    let users = [];
+    try { users = await Api.adminUsersSimple(); } catch (e) { /* ignore */ }
+    const uOpts = users.map(u => `<option value="${u.phone}">${u.name} (${u.phone})</option>`).join("");
     panel.innerHTML = `
       <div class="edit-form glass-card">
         <h3>新建小组</h3>
         <div class="input-group"><label class="input-label">小组名称</label><input id="newGroupName" class="input-field" placeholder="如：第四组"></div>
-        <div class="input-group"><label class="input-label">组长手机号</label><input id="newGroupLeader" class="input-field" placeholder="组长手机号"></div>
-        <div class="input-group"><label class="input-label">成员手机号（逗号分隔）</label><input id="newGroupMembers" class="input-field" placeholder="13800001111,13800002222"></div>
+        <div class="input-group"><label class="input-label">组长</label><select id="newGroupLeader" class="input-field"><option value="">-- 选择组长 --</option>${uOpts}</select></div>
+        <div class="input-group"><label class="input-label">组员（可多选）</label><select id="newGroupMembers" class="input-field" multiple style="min-height:120px">${uOpts}</select></div>
         <div class="form-actions">
           <button class="btn-primary" onclick="Admin.createGroup()">确认创建</button>
           <button class="btn-secondary" onclick="document.getElementById('groupEditPanel').innerHTML=''">取消</button>
@@ -343,10 +373,10 @@ const Admin = {
 
   async createGroup() {
     const name = document.getElementById("newGroupName").value.trim();
-    const leader = document.getElementById("newGroupLeader").value.trim();
-    const membersStr = document.getElementById("newGroupMembers").value.trim();
+    const leader = document.getElementById("newGroupLeader").value;
+    const sel = document.getElementById("newGroupMembers");
+    const memberPhones = Array.from(sel.selectedOptions).map(o => o.value);
     if (!name) { alert("请输入小组名称"); return; }
-    const memberPhones = membersStr ? membersStr.split(",").map(s => s.trim()).filter(Boolean) : [];
     try {
       await Api.adminCreateGroup({ name, leaderPhone: leader, memberPhones });
       alert("创建成功");
@@ -354,17 +384,21 @@ const Admin = {
     } catch (e) { alert(e.message); }
   },
 
-  editGroup(g) {
+  async editGroup(g) {
     const panel = document.getElementById("groupEditPanel");
     if (!panel) return;
+    let users = [];
+    try { users = await Api.adminUsersSimple(); } catch (e) { /* ignore */ }
+    const uOpts = users.map(u => `<option value="${u.phone}" ${g.members.some(m=>m.phone===u.phone)?'selected':''}>${u.name} (${u.phone})</option>`).join("");
     panel.innerHTML = `
       <div class="edit-form glass-card">
         <h3>编辑小组 - ${g.name}</h3>
         <div class="input-group"><label class="input-label">小组名称</label><input id="editGroupName" class="input-field" value="${g.name}"></div>
-        <div class="input-group"><label class="input-label">组长手机号</label><input id="editGroupLeader" class="input-field" value="${g.leader_phone||''}"></div>
-        <p style="color:var(--text-secondary);font-size:13px">当前成员: ${g.members.map(m => m.phone).join(", ")}</p>
+        <div class="input-group"><label class="input-label">组长</label><select id="editGroupLeader" class="input-field"><option value="">-- 选择组长 --</option>${users.map(u => `<option value="${u.phone}" ${u.phone===g.leader_phone?'selected':''}>${u.name} (${u.phone})</option>`).join("")}</select></div>
+        <div class="input-group"><label class="input-label">组员（可多选）</label><select id="editGroupMembers" class="input-field" multiple style="min-height:120px">${uOpts}</select></div>
         <div class="form-actions">
           <button class="btn-primary" onclick="Admin.saveGroup(${g.id})">保存</button>
+          <button class="btn-danger" onclick="Admin.deleteGroup(${g.id},'${g.name}')">删除小组</button>
           <button class="btn-secondary" onclick="document.getElementById('groupEditPanel').innerHTML=''">取消</button>
         </div>
       </div>
@@ -373,14 +407,24 @@ const Admin = {
 
   async saveGroup(id) {
     const name = document.getElementById("editGroupName").value.trim();
-    const leader = document.getElementById("editGroupLeader").value.trim();
+    const leaderPhone = document.getElementById("editGroupLeader").value;
+    const sel = document.getElementById("editGroupMembers");
+    const memberPhones = Array.from(sel.selectedOptions).map(o => o.value);
     try {
-      await Api.adminUpdateUser(leader, { name });
+      await Api.adminUpdateGroup(id, { name, leaderPhone, memberPhones });
       alert("保存成功");
       this.renderGroups();
     } catch (e) { alert(e.message); }
   },
 
+  async deleteGroup(id, name) {
+    if (!confirm(`确定要删除小组「${name}」吗？`)) return;
+    try {
+      await Api.adminDeleteGroup(id);
+      alert("已删除");
+      this.renderGroups();
+    } catch (e) { alert(e.message); }
+  },
   // ==================== 登录日志 ====================
   async renderLogs() {
     const content = document.getElementById("adminContent");
@@ -393,22 +437,73 @@ const Admin = {
         <h2>登录日志</h2>
         <div style="overflow-x:auto">
           <table class="data-table full-width">
-            <thead><tr><th>手机号</th><th>IP</th><th>User-Agent</th><th>登录时间</th></tr></thead>
+            <thead><tr><th>手机号</th><th>IP</th><th>归属地</th><th>设备</th><th>登录时间</th><th></th></tr></thead>
             <tbody>
-              ${logs.map(l => `
-                <tr>
+              ${logs.map((l,i) => `
+                <tr class="log-row" onclick="Admin.toggleLogDetail(${i})" style="cursor:pointer">
                   <td>${l.phone}</td>
                   <td>${l.ip || '-'}</td>
-                  <td class="ua-cell" title="${(l.user_agent||'').replace(/"/g,'')}">${l.user_agent || '-'}</td>
-                  <td>${(l.login_at||'').replace('T',' ').slice(0,19)}</td>
+                  <td>${l.region || '-'}</td>
+                  <td>${l.device || '-'}</td>
+                  <td>${l.loginAt || '-'}</td>
+                  <td style="font-size:12px;color:var(--text-secondary)">▸</td>
+                </tr>
+                <tr class="log-detail-row" id="logDetail_${i}" style="display:none">
+                  <td colspan="6" style="padding:12px 16px;background:rgba(255,255,255,0.02);border-bottom:1px solid var(--border-dim)">
+                    <div style="display:grid;gap:6px;font-size:12px;color:var(--text-secondary)">
+                      <div><strong>手机号:</strong> ${l.phone}</div>
+                      <div><strong>IP:</strong> ${l.ip}</div>
+                      <div><strong>归属地:</strong> ${l.region}</div>
+                      <div><strong>设备:</strong> ${l.device}</div>
+                      <div><strong>登录时间:</strong> ${l.loginAt}</div>
+                      <div style="color:rgba(255,255,255,0.4);word-break:break-all"><strong>UA:</strong> ${l.userAgent || '-'}</div>
+                    </div>
+                    <button class="btn-small" style="margin-top:8px" onclick="event.stopPropagation();Admin.viewUserLogs('${l.phone}')">查看该用户全部日志</button>
+                  </td>
                 </tr>
               `).join("")}
-              ${logs.length === 0 ? '<tr><td colspan="4" class="empty-text">暂无记录</td></tr>' : ''}
+              ${logs.length === 0 ? '<tr><td colspan="6" class="empty-text">暂无记录</td></tr>' : ''}
             </tbody>
           </table>
         </div>
       </div>
     `;
+  },
+
+  toggleLogDetail(i) {
+    const row = document.getElementById("logDetail_" + i);
+    if (row) row.style.display = row.style.display === "none" ? "" : "none";
+  },
+
+  async viewUserLogs(phone) {
+    const content = document.getElementById("adminContent");
+    content.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-secondary)">加载中...</div>';
+    try {
+      const logs = await Api.adminUserLoginLogs(phone);
+      content.innerHTML = `
+        <div class="admin-section">
+          <h2>用户 ${phone} 的登录日志</h2>
+          <button class="btn-secondary" style="margin-bottom:12px" onclick="Admin.renderLogs()">← 返回全部日志</button>
+          <div style="overflow-x:auto">
+            <table class="data-table full-width">
+              <thead><tr><th>IP</th><th>归属地</th><th>设备</th><th>登录时间</th><th>User-Agent</th></tr></thead>
+              <tbody>
+                ${logs.map(l => `
+                  <tr>
+                    <td>${l.ip}</td>
+                    <td>${l.region}</td>
+                    <td>${l.device}</td>
+                    <td>${l.loginAt}</td>
+                    <td class="ua-cell" title="${(l.userAgent||'').replace(/"/g,'')}">${l.userAgent || '-'}</td>
+                  </tr>
+                `).join("")}
+                ${logs.length === 0 ? '<tr><td colspan="5" class="empty-text">暂无记录</td></tr>' : ''}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    } catch (e) { content.innerHTML = `<div class="empty-state">加载失败: ${e.message}</div>`; }
   },
 
   // ==================== 系统设置 ====================
@@ -461,6 +556,40 @@ const Admin = {
       await Api.adminUpdateSettings(settings);
       alert("保存成功");
       if (pwd) pwd.value = "";
+    } catch (e) { alert(e.message); }
+  },
+
+  showBatchImport() {
+    const panel = document.getElementById("batchImportPanel");
+    panel.innerHTML = `
+      <div class="edit-form glass-card" style="max-width:700px">
+        <h3>批量导入用户</h3>
+        <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">粘贴表格数据，每行一个用户：手机号,姓名,校验码,小组名（逗号或制表符分隔）</p>
+        <textarea id="batchImportText" class="input-field" rows="8" placeholder="13800001111,张三,123456,第一组&#10;13800002222,李四,123456,第一组&#10;13800003333,王五,123456,第二组" style="font-family:monospace;font-size:13px"></textarea>
+        <div class="form-actions" style="margin-top:12px">
+          <button class="btn-primary" onclick="Admin.executeBatchImport()">确认导入</button>
+          <button class="btn-secondary" onclick="document.getElementById('batchImportPanel').innerHTML=''">取消</button>
+        </div>
+      </div>
+    `;
+  },
+
+  async executeBatchImport() {
+    const text = document.getElementById("batchImportText").value.trim();
+    if (!text) { alert("请输入数据"); return; }
+    const lines = text.split("\n").filter(l => l.trim());
+    const users = lines.map(line => {
+      const parts = line.split(/[\t,]/).map(s => s.trim());
+      return { phone: parts[0]||"", name: parts[1]||"", code: parts[2]||"", group_name: parts[3]||"" };
+    });
+    try {
+      const result = await Api.adminBatchUsers(users);
+      alert(`导入完成: 成功 ${result.success.length} 人，失败 ${result.failed.length} 人`);
+      if (result.failed.length > 0) {
+        console.log("失败详情:", result.failed);
+      }
+      document.getElementById("batchImportPanel").innerHTML = "";
+      this.renderUsers();
     } catch (e) { alert(e.message); }
   },
 
