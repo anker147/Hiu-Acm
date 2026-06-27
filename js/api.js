@@ -6,13 +6,13 @@ const Api = {
   token: null,
 
   init() {
-    this.token = sessionStorage.getItem("hiu_token");
+    this.token = localStorage.getItem("hiu_token");
   },
 
   setToken(t) {
     this.token = t;
-    if (t) sessionStorage.setItem("hiu_token", t);
-    else sessionStorage.removeItem("hiu_token");
+    if (t) localStorage.setItem("hiu_token", t);
+    else localStorage.removeItem("hiu_token");
   },
 
   async fetch(path, options = {}) {

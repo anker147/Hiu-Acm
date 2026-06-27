@@ -16,6 +16,7 @@
 - **admin 数据传递**：禁止把 JSON `stringify` 后嵌入 HTML onclick（转义脆弱）；用 `_usersCache`/`_groupsCache` 按 phone/id 查。
 - **problemId 类型陷阱（重要）**：`daily_tasks.problems`/`completed` 存的是字符串数组 `["1001"]`，后端所有涉及 problemId 比较的地方（删除/完成/批量完成/PUT修改）必须用 `String()` 统一类型后再 `includes`/`filter`，否则 `"1001" !== 1001` 静默失效。
 - **题库重置接口**：`POST /api/admin/reset-data`，body `{ scope: "stats"|"tasks"|"all" }`，管理端设置页危险操作区调用。
+- **移动端登录失效（重要）**：token 必须用 `localStorage`，**禁止用 `sessionStorage`**。原因：iOS 私密浏览/微信内置/X5 内核/Android Chrome 切后台都会清空 `sessionStorage`，导致「登录成功 → 后续请求 401 掉线」。代码已统一改用 `localStorage`（`js/auth.js` 的 `tokenStore` + `js/api.js` 的 `setToken/init`），`sessionStorage` 在前端代码中不应再出现。
 
 ## 部署注意
 - **git push ≠ wrangler deploy（重要！）**：`git push` 只更新 GitHub 仓库和 GitHub Pages 前端，**不会**自动部署 Cloudflare Worker。修改 `workers/api.js` 后必须单独运行 `npx wrangler deploy workers/api.js --env=""` 部署后端，否则线上 Worker 是旧代码，新接口会报"接口不存在"。本地调试时前端是最新代码但 Worker 可能是旧代码，表现就是"前端发了新请求但后端不认识"。
