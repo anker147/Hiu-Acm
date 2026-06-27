@@ -433,6 +433,17 @@ async function handleAdminUsers(db, method, url, body) {
     return last;
   })();
 
+  // 子路由优先匹配（tasks 等特殊路径必须在通用 /users 匹配之前）
+  if (method === "GET" && pathParts.includes("tasks")) {
+    const tasksPhone = pathParts[pathParts.indexOf("tasks") - 1];
+    const tasks = await db.prepare(
+      "SELECT * FROM daily_tasks WHERE phone = ? ORDER BY task_date DESC"
+    ).bind(tasksPhone).all();
+    return json(tasks.results.map(t => ({
+      ...t, problems: JSON.parse(t.problems), completed: JSON.parse(t.completed)
+    })));
+  }
+
   if (method === "GET" && !userId) {
     // 简化用户列表（供选择框使用）
     if (pathParts.includes("simple")) {
@@ -453,16 +464,6 @@ async function handleAdminUsers(db, method, url, body) {
       phone: user.phone, name: user.name, codeType: user.code_type,
       codeExpiry: user.code_expiry, avatarUrl: user.avatar_url, createdAt: user.created_at
     });
-  }
-
-  if (method === "GET" && pathParts.includes("tasks")) {
-    const tasksPhone = pathParts[pathParts.indexOf("tasks") - 1];
-    const tasks = await db.prepare(
-      "SELECT * FROM daily_tasks WHERE phone = ? ORDER BY task_date DESC"
-    ).bind(tasksPhone).all();
-    return json(tasks.results.map(t => ({
-      ...t, problems: JSON.parse(t.problems), completed: JSON.parse(t.completed)
-    })));
   }
 
   if (method === "POST") {

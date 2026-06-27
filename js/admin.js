@@ -258,6 +258,7 @@ const Admin = {
     panel.innerHTML = '<div style="padding:10px;color:var(--text-secondary)">加载中...</div>';
     try {
       const tasks = await Api.adminUserTasks(phone);
+      const safeTasks = Array.isArray(tasks) ? tasks : [];
       panel.innerHTML = `
         <div class="edit-form glass-card" style="max-width:780px">
           <h3>${name} 的题单记录</h3>
@@ -266,17 +267,17 @@ const Admin = {
             <button class="btn-small" onclick="Admin.selectAllProblems('${phone}')">全选</button>
             <button class="btn-small" onclick="Admin.deselectAllProblems('${phone}')">取消全选</button>
           </div>
-          ${tasks.length === 0 ? '<p class="empty-text">暂无记录</p>' : tasks.map(t => `
+          ${safeTasks.length === 0 ? '<p class="empty-text">暂无记录</p>' : safeTasks.map(t => `
             <div class="task-record" style="margin-bottom:12px;padding:12px;background:rgba(255,255,255,0.02);border-radius:8px">
               <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                <strong>${t.task_date}</strong>
-                <span>${t.completed.length}/${t.problems.length}</span>
+                <strong>${t.task_date || '-'}</strong>
+                <span>${(t.completed || []).length}/${(t.problems || []).length}</span>
               </div>
               <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">
-                ${t.problems.map(id => `
+                ${(t.problems || []).map(id => `
                   <span style="display:inline-flex;align-items:center;gap:2px;margin-right:8px;margin-bottom:4px">
-                    <label class="task-check-label" style="cursor:pointer;color:${t.completed.includes(id)?'var(--success)':'inherit'}">
-                      <input type="checkbox" class="task-prob-check" value="${id}" data-date="${t.task_date}" ${t.completed.includes(id)?'disabled':''}>
+                    <label class="task-check-label" style="cursor:pointer;color:${(t.completed || []).includes(id)?'var(--success)':'inherit'}">
+                      <input type="checkbox" class="task-prob-check" value="${id}" data-date="${t.task_date}" ${(t.completed || []).includes(id)?'disabled':''}>
                       #${id}
                     </label>
                     <button class="btn-small btn-danger" style="padding:1px 6px;font-size:10px;line-height:1.4" onclick="Admin.deleteTaskProblem('${phone}','${t.task_date}',${id})" title="删除此题">×</button>
