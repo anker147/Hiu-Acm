@@ -274,10 +274,13 @@ const Admin = {
               </div>
               <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">
                 ${t.problems.map(id => `
-                  <label class="task-check-label" style="margin-right:10px;cursor:pointer;color:${t.completed.includes(id)?'var(--success)':'inherit'}">
-                    <input type="checkbox" class="task-prob-check" value="${id}" data-date="${t.task_date}" ${t.completed.includes(id)?'disabled':''}>
-                    #${id}
-                  </label>
+                  <span style="display:inline-flex;align-items:center;gap:2px;margin-right:8px;margin-bottom:4px">
+                    <label class="task-check-label" style="cursor:pointer;color:${t.completed.includes(id)?'var(--success)':'inherit'}">
+                      <input type="checkbox" class="task-prob-check" value="${id}" data-date="${t.task_date}" ${t.completed.includes(id)?'disabled':''}>
+                      #${id}
+                    </label>
+                    <button class="btn-small btn-danger" style="padding:1px 6px;font-size:10px;line-height:1.4" onclick="Admin.deleteTaskProblem('${phone}','${t.task_date}',${id})" title="删除此题">×</button>
+                  </span>
                 `).join("")}
               </div>
             </div>
@@ -313,6 +316,14 @@ const Admin = {
         totalSkipped += res.skipped.length;
       }
       alert(`完成 ${totalSuccess} 题${totalSkipped > 0 ? `，跳过 ${totalSkipped} 题（已标记）` : ''}`);
+      this.showUserTasks(phone, "");
+    } catch (e) { alert(e.message); }
+  },
+
+  async deleteTaskProblem(phone, taskDate, problemId) {
+    if (!confirm(`确定删除 ${phone} 在 ${taskDate} 的题目 #${problemId}?`)) return;
+    try {
+      await Api.adminDeleteTaskProblem(phone, taskDate, problemId);
       this.showUserTasks(phone, "");
     } catch (e) { alert(e.message); }
   },

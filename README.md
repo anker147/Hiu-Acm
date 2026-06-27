@@ -47,15 +47,12 @@ wrangler deploy
 
 部署后可通过管理端登录（admin 账号 + 自定义密码）添加学员并分配校验码。
 
-<<<<<<< HEAD
 ## 技术栈
 
 - **前端**: Vanilla JS SPA / CSS Fluent 2 风格
 - **后端**: Cloudflare Workers
 - **数据库**: Cloudflare D1
 - **部署**: GitHub Pages
-=======
->>>>>>> 22e9b5ef0045d45086a85e1dce1dd79d97bc82f0
 
 ## 项目结构
 

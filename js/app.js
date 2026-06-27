@@ -7,9 +7,12 @@ const App = {
   showNewOnly: false,
   filterTag: "全部",
   searchQuery: "",
+  selectionPhase: 0, // 0=新题阶段, 1=全部题目阶段
+  _scrollTop: 0,
 
   async init() {
     Api.init();
+    this.initTheme();
     const user = await Auth.checkSession();
     if (!user) { this.showView("login"); return; }
 
@@ -22,6 +25,81 @@ const App = {
     await this.loadData();
     this.showView("dashboard");
     this.renderDashboard();
+  },
+
+  initTheme() {
+    const saved = localStorage.getItem("hiu-acm-theme");
+    if (saved === "light") {
+      document.documentElement.setAttribute("data-theme", "light");
+    } else if (saved === "dark") {
+      document.documentElement.setAttribute("data-theme", "dark");
+    }
+    // else: follow system prefers-color-scheme (no attribute needed)
+  },
+
+  toggleTheme() {
+    const current = document.documentElement.getAttribute("data-theme");
+    if (current === "light") {
+      document.documentElement.removeAttribute("data-theme");
+      localStorage.removeItem("hiu-acm-theme");
+    } else if (current === "dark") {
+      document.documentElement.setAttribute("data-theme", "light");
+      localStorage.setItem("hiu-acm-theme", "light");
+    } else {
+      // Currently following system, switch to dark explicitly
+      document.documentElement.setAttribute("data-theme", "dark");
+      localStorage.setItem("hiu-acm-theme", "dark");
+    }
+  },
+
+  getThemeIcon() {
+    const current = document.documentElement.getAttribute("data-theme");
+    if (current === "light") return "☀";
+    if (current === "dark") return "🌙";
+    return "⏾"; // system/auto
+  },
+
+  getNavHTML(activeLink) {
+    return `
+      <nav class="app-nav">
+        <div class="nav-brand"><span style="font-size:20px">🏠</span> HIU-ACM</div>
+        <div class="nav-links">
+          <a class="nav-link ${activeLink==='selection'||activeLink==='today'?'active':''}" onclick="App.renderTodayTasksOrSelection()">${this.todayTasks ? '今日题单' : '选择题单'}</a>
+          <a class="nav-link ${activeLink==='bank'?'active':''}" onclick="App.renderBank()">题库浏览</a>
+          <a class="nav-link ${activeLink==='history'?'active':''}" onclick="App.renderHistory()">历史记录</a>
+          <a class="nav-link ${activeLink==='group'?'active':''}" onclick="App.renderGroup()">小组展示</a>
+          <a class="nav-link ${activeLink==='profile'?'active':''}" onclick="App.renderProfile()">个人信息</a>
+        </div>
+        <div class="nav-user">
+          <button class="theme-toggle" onclick="App.toggleTheme()" title="切换亮/暗模式">${this.getThemeIcon()}</button>
+          <div class="nav-user-avatar">${this.user.name[0]}</div>
+          <span class="nav-user-name">${this.user.name}</span>
+          <button class="btn-text" onclick="App.handleLogout()">退出</button>
+        </div>
+      </nav>`;
+  },
+
+  _saveScroll() {
+    const main = document.querySelector(".app-main");
+    if (main) this._scrollTop = main.scrollTop;
+  },
+
+  _restoreScroll() {
+    const main = document.querySelector(".app-main");
+    if (main && this._scrollTop > 0) {
+      main.scrollTop = this._scrollTop;
+    }
+  },
+
+  renderDashboard() {
+    if (this.todayTasks) this.renderTodayTasks();
+    else this.renderSelection();
+  },
+
+  renderTodayTasksOrSelection() {
+    this.selectionPhase = 0;
+    if (this.todayTasks) this.renderTodayTasks();
+    else this.renderSelection();
   },
 
   async loadData() {
@@ -138,35 +216,23 @@ const App = {
     this.renderLogin();
   },
 
-  // ==================== 仪表盘 ====================
-  renderDashboard() {
-    if (this.todayTasks) return this.renderTodayTasks();
-    this.renderSelection();
-  },
-
+  // ==================== 选择题单 ====================
   renderSelection() {
+    this._saveScroll();
     const el = document.getElementById("view-dashboard");
     const tags = this.getAllTags();
+    const isPhase1 = this.selectionPhase === 0;
+    const newProblems = this.problems.filter(p => (this.stats[p.nowcoder_id]?.selectedCount || 0) < 1);
+    const displayProblems = isPhase1 ? newProblems : this.getFilteredProblems();
+    const newCount = this.selected.filter(id => (this.stats[id]?.selectedCount || 0) < 1).length;
+
     el.innerHTML = `
       <div class="app-layout">
-        <nav class="app-nav">
-          <div class="nav-brand"><span style="font-size:20px">🏠</span> HIU-ACM</div>
-          <div class="nav-links">
-            <a class="nav-link active" onclick="App.renderSelection()">选择题单</a>
-            <a class="nav-link" onclick="App.renderBank()">题库浏览</a>
-            <a class="nav-link" onclick="App.renderHistory()">历史记录</a>
-            <a class="nav-link" onclick="App.renderProfile()">个人信息</a>
-          </div>
-          <div class="nav-user">
-            <div class="nav-user-avatar">${this.user.name[0]}</div>
-            <span class="nav-user-name">${this.user.name}</span>
-            <button class="btn-text" onclick="App.handleLogout()">退出</button>
-          </div>
-        </nav>
+        ${this.getNavHTML('selection')}
         <main class="app-main">
           <div class="section-header">
-            <h2>设置今日题单</h2>
-            <p>首次登录，请选择今日要完成的题目</p>
+            <h2>${isPhase1 ? '第1步：选择新题目' : '第2步：选择全部题目'}</h2>
+            <p>${isPhase1 ? '请优先从「被选择次数 < 1」的题目中选择至少 2 道' : '已选 ' + newCount + ' 道新题，可继续选择其他题目'}</p>
           </div>
           <div class="selection-rules glass-card">
             <h3>📋 选择规则</h3>
@@ -176,6 +242,7 @@ const App = {
               <li>总共 5-20 道题目作为今日待完成题单</li>
             </ul>
           </div>
+          ${!isPhase1 ? `
           <div class="filter-bar">
             <div class="filter-tags">
               <button class="tag-btn ${this.filterTag === '全部' ? 'active' : ''}" onclick="App.setFilter('全部')">全部</button>
@@ -184,23 +251,36 @@ const App = {
             <div class="search-box">
               <input class="input-field" placeholder="搜索题号/标题..." value="${this.searchQuery}" oninput="App.handleSearch(this.value)">
             </div>
-          </div>
+          </div>` : ''}
           <div class="selection-stats">
             <span>已选 <strong>${this.selected.length}</strong> 道</span>
             <span class="stat-sep">|</span>
-            <span>新题 <strong>${this.selected.filter(id => (this.stats[id]?.selectedCount || 0) < 1).length}</strong>/2 道</span>
-            <span class="stat-sep">|</span>
-            <span>剩余可选 <strong>${18 - this.selected.filter(id => (this.stats[id]?.selectedCount || 0) >= 1).length}</strong> 道</span>
+            <span>新题 <strong>${newCount}</strong>/2 道</span>
+            ${!isPhase1 ? `<span class="stat-sep">|</span><span>剩余可选 <strong>${18 - this.selected.filter(id => (this.stats[id]?.selectedCount || 0) >= 1).length}</strong> 道</span>` : ''}
           </div>
           <div class="problem-grid" id="problemGrid">
-            ${this.getFilteredProblems().map(p => this.renderProblemCard(p)).join("")}
+            ${displayProblems.map(p => this.renderProblemCard(p)).join("") || '<p style="color:var(--text-secondary);text-align:center;padding:40px">🎉 所有题目都已被选择过！点击下方按钮进入全部题目选择。</p>'}
           </div>
           <div class="selection-footer">
-            <button class="btn-primary" id="submitSelection" onclick="App.submitSelection()">确认题单</button>
+            ${isPhase1 ? `
+              <button class="btn-primary" onclick="App.finishPhase1()" ${newCount < 2 ? 'disabled style="opacity:0.5;cursor:not-allowed"' : ''}>
+                继续选择（已选 ${newCount} 道新题）→
+              </button>` : `
+              <button class="btn-secondary" onclick="App.selectionPhase=0;App.renderSelection()">返回新题选择</button>
+              <button class="btn-primary" id="submitSelection" onclick="App.submitSelection()">确认题单（共 ${this.selected.length} 道）</button>
+            `}
           </div>
         </main>
       </div>
     `;
+    this._restoreScroll();
+  },
+
+  finishPhase1() {
+    const newCount = this.selected.filter(id => (this.stats[id]?.selectedCount || 0) < 1).length;
+    if (newCount < 2) { alert(`至少选择2道新题目（当前${newCount}道）`); return; }
+    this.selectionPhase = 1;
+    this.renderSelection();
   },
 
   renderProblemCard(p) {
@@ -296,6 +376,7 @@ const App = {
   // ==================== 今日题单 ====================
   renderTodayTasks() {
     if (!this.todayTasks) { this.renderSelection(); return; }
+    this._saveScroll();
 
     const tasks = this.todayTasks;
     const total = tasks.problems.length;
@@ -306,20 +387,7 @@ const App = {
     const el = document.getElementById("view-dashboard");
     el.innerHTML = `
       <div class="app-layout">
-        <nav class="app-nav">
-          <div class="nav-brand"><span style="font-size:20px">🏠</span> HIU-ACM</div>
-          <div class="nav-links">
-            <a class="nav-link active" onclick="App.renderTodayTasks()">今日题单</a>
-            <a class="nav-link" onclick="App.renderBank()">题库浏览</a>
-            <a class="nav-link" onclick="App.renderHistory()">历史记录</a>
-            <a class="nav-link" onclick="App.renderProfile()">个人信息</a>
-          </div>
-          <div class="nav-user">
-            <div class="nav-user-avatar">${this.user.name[0]}</div>
-            <span class="nav-user-name">${this.user.name}</span>
-            <button class="btn-text" onclick="App.handleLogout()">退出</button>
-          </div>
-        </nav>
+        ${this.getNavHTML('today')}
         <main class="app-main">
           <div class="section-header" style="display:flex;align-items:center;gap:20px">
             <div class="progress-ring-wrapper">
@@ -338,6 +406,7 @@ const App = {
         </main>
       </div>
     `;
+    this._restoreScroll();
   },
 
   renderTaskCard(id, done) {
@@ -370,24 +439,12 @@ const App = {
 
   // ==================== 题库浏览 ====================
   renderBank() {
+    this._saveScroll();
     const tags = this.getAllTags();
     const el = document.getElementById("view-dashboard");
     el.innerHTML = `
       <div class="app-layout">
-        <nav class="app-nav">
-          <div class="nav-brand"><span style="font-size:20px">🏠</span> HIU-ACM</div>
-          <div class="nav-links">
-            <a class="nav-link" onclick="App.renderTodayTasksOrSelection()">${this.todayTasks ? '今日题单' : '选择题单'}</a>
-            <a class="nav-link active" onclick="App.renderBank()">题库浏览</a>
-            <a class="nav-link" onclick="App.renderHistory()">历史记录</a>
-            <a class="nav-link" onclick="App.renderProfile()">个人信息</a>
-          </div>
-          <div class="nav-user">
-            <div class="nav-user-avatar">${this.user.name[0]}</div>
-            <span class="nav-user-name">${this.user.name}</span>
-            <button class="btn-text" onclick="App.handleLogout()">退出</button>
-          </div>
-        </nav>
+        ${this.getNavHTML('bank')}
         <main class="app-main">
           <div class="section-header"><h2>题库浏览</h2><p>共 ${this.problems.length} 道题目</p></div>
           <div class="filter-bar">
@@ -405,6 +462,7 @@ const App = {
         </main>
       </div>
     `;
+    this._restoreScroll();
   },
 
   renderStatCard(p) {
@@ -433,25 +491,13 @@ const App = {
 
   // ==================== 历史记录 ====================
   async renderHistory() {
+    this._saveScroll();
     let history = [];
     try { history = await Api.getTaskHistory(); } catch (e) {}
     const el = document.getElementById("view-dashboard");
     el.innerHTML = `
       <div class="app-layout">
-        <nav class="app-nav">
-          <div class="nav-brand"><span style="font-size:20px">🏠</span> HIU-ACM</div>
-          <div class="nav-links">
-            <a class="nav-link" onclick="App.renderTodayTasksOrSelection()">${this.todayTasks ? '今日题单' : '选择题单'}</a>
-            <a class="nav-link" onclick="App.renderBank()">题库浏览</a>
-            <a class="nav-link active" onclick="App.renderHistory()">历史记录</a>
-            <a class="nav-link" onclick="App.renderProfile()">个人信息</a>
-          </div>
-          <div class="nav-user">
-            <div class="nav-user-avatar">${this.user.name[0]}</div>
-            <span class="nav-user-name">${this.user.name}</span>
-            <button class="btn-text" onclick="App.handleLogout()">退出</button>
-          </div>
-        </nav>
+        ${this.getNavHTML('history')}
         <main class="app-main">
           <div class="section-header"><h2>历史记录</h2></div>
           ${history.length === 0 ? '<div class="empty-state">暂无历史记录</div>' : history.map(t => {
@@ -478,39 +524,29 @@ const App = {
         </main>
       </div>
     `;
+    this._restoreScroll();
   },
 
   // ==================== 个人信息 ====================
   renderProfile() {
+    this._saveScroll();
     const groupInfo = this.user.group || "未分组";
     const avatarUrl = this.user.avatarUrl || "";
     const el = document.getElementById("view-dashboard");
     el.innerHTML = `
       <div class="app-layout">
-        <nav class="app-nav">
-          <div class="nav-brand"><span style="font-size:20px">🏠</span> HIU-ACM</div>
-          <div class="nav-links">
-            <a class="nav-link" onclick="App.renderTodayTasksOrSelection()">${this.todayTasks ? '今日题单' : '选择题单'}</a>
-            <a class="nav-link" onclick="App.renderBank()">题库浏览</a>
-            <a class="nav-link" onclick="App.renderHistory()">历史记录</a>
-            <a class="nav-link" onclick="App.renderGroup()">小组展示</a>
-            <a class="nav-link active" onclick="App.renderProfile()">个人信息</a>
-          </div>
-          <div class="nav-user">
-            <div class="nav-user-avatar">${this.user.name[0]}</div>
-            <span class="nav-user-name">${this.user.name}</span>
-            <button class="btn-text" onclick="App.handleLogout()">退出</button>
-          </div>
-        </nav>
+        ${this.getNavHTML('profile')}
         <main class="app-main">
           <div class="section-header"><h2>个人信息</h2></div>
           <div class="profile-card glass-card">
             <div class="profile-avatar-section">
-              <div class="profile-avatar-large">${avatarUrl ? `<img src="${avatarUrl}" alt="avatar">` : this.user.name[0]}</div>
+              <div class="profile-avatar-large" id="profileAvatarPreview">${avatarUrl ? `<img src="${avatarUrl}" alt="avatar">` : this.user.name[0]}</div>
               <div class="profile-avatar-actions">
-                <input type="text" id="avatarUrlInput" class="input-field" placeholder="输入头像图片URL" value="${avatarUrl}" style="width:260px;font-size:13px">
-                <button class="btn-small" onclick="App.saveAvatar()">保存头像</button>
-                <span style="font-size:11px;color:var(--text-secondary)">支持任意图片URL</span>
+                <input type="file" id="avatarFileInput" accept="image/*" style="display:none" onchange="App.handleAvatarFile(event)">
+                <button class="btn-small" onclick="document.getElementById('avatarFileInput').click()">选择图片文件</button>
+                <span style="font-size:11px;color:var(--text-secondary)">支持 JPG/PNG（自动压缩至 200x200）</span>
+                <input type="text" id="avatarUrlInput" class="input-field" placeholder="或输入头像图片URL" value="${avatarUrl}" style="width:260px;font-size:13px;margin-top:6px">
+                <button class="btn-small" onclick="App.saveAvatarUrl()">保存URL</button>
               </div>
             </div>
             <div class="profile-details">
@@ -523,9 +559,42 @@ const App = {
         </main>
       </div>
     `;
+    this._restoreScroll();
   },
 
-  async saveAvatar() {
+  handleAvatarFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { alert("请选择图片文件"); return; }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const size = Math.min(200, img.width, img.height);
+        canvas.width = canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        const sx = (img.width - size) / 2, sy = (img.height - size) / 2;
+        ctx.drawImage(img, sx, sy, size, size, 0, 0, size, size);
+        const base64 = canvas.toDataURL("image/jpeg", 0.7);
+        this.saveAvatarDataUrl(base64);
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  },
+
+  async saveAvatarDataUrl(dataUrl) {
+    try {
+      await Api.updateAvatar(dataUrl);
+      this.user.avatarUrl = dataUrl;
+      const preview = document.getElementById("profileAvatarPreview");
+      if (preview) preview.innerHTML = `<img src="${dataUrl}" alt="avatar">`;
+      alert("头像已更新");
+    } catch (e) { alert(e.message); }
+  },
+
+  async saveAvatarUrl() {
     const url = document.getElementById("avatarUrlInput").value.trim();
     try {
       await Api.updateAvatar(url);
@@ -537,23 +606,10 @@ const App = {
 
   // ==================== 小组展示 (OPT4) ====================
   async renderGroup() {
+    this._saveScroll();
     const el = document.getElementById("view-dashboard");
     el.innerHTML = `<div class="app-layout">
-      <nav class="app-nav">
-        <div class="nav-brand"><span style="font-size:20px">🏠</span> HIU-ACM</div>
-        <div class="nav-links">
-          <a class="nav-link" onclick="App.renderTodayTasksOrSelection()">${this.todayTasks ? '今日题单' : '选择题单'}</a>
-          <a class="nav-link" onclick="App.renderBank()">题库浏览</a>
-          <a class="nav-link" onclick="App.renderHistory()">历史记录</a>
-          <a class="nav-link active" onclick="App.renderGroup()">小组展示</a>
-          <a class="nav-link" onclick="App.renderProfile()">个人信息</a>
-        </div>
-        <div class="nav-user">
-          <div class="nav-user-avatar">${this.user.name[0]}</div>
-          <span class="nav-user-name">${this.user.name}</span>
-          <button class="btn-text" onclick="App.handleLogout()">退出</button>
-        </div>
-      </nav>
+      ${this.getNavHTML('group')}
       <main class="app-main">
         <div class="section-header"><h2>小组展示</h2></div>
         <div id="groupPageContent" class="glass-card" style="padding:24px"><p style="text-align:center;color:var(--text-secondary)">加载中...</p></div>
@@ -565,6 +621,7 @@ const App = {
     } catch (e) {
       document.getElementById("groupPageContent").innerHTML = `<p style="text-align:center;color:var(--text-secondary);padding:40px">${e.message}</p>`;
     }
+    this._restoreScroll();
   },
 
   renderGroupContent(data) {

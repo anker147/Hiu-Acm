@@ -578,6 +578,39 @@ async function handleAdminUsers(db, method, url, body) {
     return json({ success: true });
   }
 
+  // 删除题单中某道题：DELETE /api/admin/users/:phone/tasks/:taskDate/problems/:problemId
+  if (method === "DELETE" && pathParts.includes("problems")) {
+    const probIdx = pathParts.indexOf("problems");
+    const taskDate = pathParts[probIdx - 1];
+    const targetPhone = pathParts[probIdx - 2];
+    const problemId = parseInt(pathParts[probIdx + 1]);
+    if (!taskDate || !targetPhone || isNaN(problemId)) return err("参数不完整", 400);
+
+    const task = await db.prepare(
+      "SELECT * FROM daily_tasks WHERE phone = ? AND task_date = ?"
+    ).bind(targetPhone, taskDate).first();
+    if (!task) return err("未找到题单", 404);
+
+    let problems = JSON.parse(task.problems);
+    let completed = JSON.parse(task.completed);
+    const wasCompleted = completed.includes(problemId);
+    problems = problems.filter(id => id !== problemId);
+    completed = completed.filter(id => id !== problemId);
+
+    if (problems.length === 0) {
+      await db.prepare("DELETE FROM daily_tasks WHERE id = ?").bind(task.id).run();
+    } else {
+      await db.prepare("UPDATE daily_tasks SET problems = ?, completed = ?, updated_at = datetime('now') WHERE id = ?")
+        .bind(JSON.stringify(problems), JSON.stringify(completed), task.id).run();
+    }
+
+    await db.prepare(
+      "UPDATE problem_stats SET selected_count = MAX(0, selected_count - 1), completed_count = MAX(0, completed_count - ?) WHERE problem_id = ?"
+    ).bind(wasCompleted ? 1 : 0, problemId).run();
+
+    return json({ success: true, removed: problemId, wasCompleted });
+  }
+
   if (method === "DELETE") {
     await db.prepare("DELETE FROM users WHERE phone = ?").bind(userId).run();
     await db.prepare("DELETE FROM daily_tasks WHERE phone = ?").bind(userId).run();

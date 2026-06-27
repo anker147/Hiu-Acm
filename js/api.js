@@ -166,6 +166,12 @@ const Api = {
     return this.fetch(`/api/admin/login-logs/${phone}`);
   },
 
+  async adminDeleteTaskProblem(phone, taskDate, problemId) {
+    return this.fetch(`/api/admin/users/${phone}/tasks/${taskDate}/problems/${problemId}`, {
+      method: "DELETE"
+    });
+  },
+
   async adminLoginLogs() {
     return this.fetch("/api/admin/login-logs");
   },
