@@ -422,8 +422,8 @@ async function handleAdminUsers(db, method, url, body) {
   const pathParts = pathname.split("/").filter(Boolean);
   // pathParts: ["api","admin","users", ...]
 
-  // 正则快速匹配子路由
-  const problemsMatch = pathname.match(/\/api\/admin\/users\/([^\/]+)\/tasks\/([^\/]+)\/problems\/(\d+)\/?$/);
+  // 正则快速匹配子路由（problemId 用 [^\/]+ 兼容非纯数字题号）
+  const problemsMatch = pathname.match(/\/api\/admin\/users\/([^\/]+)\/tasks\/([^\/]+)\/problems\/([^\/]+)\/?$/);
   const tasksOnlyMatch = pathname.match(/\/api\/admin\/users\/([^\/]+)\/tasks\/([^\/]+)\/?$/);
   const tasksListMatch = pathname.match(/\/api\/admin\/users\/([^\/]+)\/tasks\/?$/);
   const accountMatch = pathname.match(/\/api\/admin\/users\/([^\/]+)\/account\/?$/);
