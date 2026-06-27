@@ -482,7 +482,7 @@ const App = {
   renderStatCard(p) {
     const stat = this.stats[p.nowcoder_id] || {};
     const inToday = this.todayTasks && this.todayTasks.problems.includes(p.nowcoder_id);
-    const problemUrl = `https://ac.nowcoder.com/acm/problem/${p.nowcoder_id}`;
+    const problemUrl = `https://ac.nowcoder.com/acm/contest/137328/${p.nowcoder_id}`;
     return `
       <div class="problem-card glass-card ${inToday ? 'selected' : ''}" style="cursor:pointer" onclick="window.open('${problemUrl}', '_blank')">
         <div class="prob-header">
