@@ -37,6 +37,8 @@ const App = {
     // else: follow system prefers-color-scheme (no attribute needed)
   },
 
+  _currentView: null,
+
   toggleTheme() {
     const current = document.documentElement.getAttribute("data-theme");
     if (current === "light") {
@@ -50,6 +52,12 @@ const App = {
       document.documentElement.setAttribute("data-theme", "dark");
       localStorage.setItem("hiu-acm-theme", "dark");
     }
+    this.refreshView();
+  },
+
+  refreshView() {
+    if (!this._currentView) return;
+    this[this._currentView]();
   },
 
   getThemeIcon() {
@@ -218,6 +226,7 @@ const App = {
 
   // ==================== 选择题单 ====================
   renderSelection() {
+    this._currentView = 'renderSelection';
     this._saveScroll();
     const el = document.getElementById("view-dashboard");
     const tags = this.getAllTags();
@@ -440,6 +449,7 @@ const App = {
   // ==================== 题库浏览 ====================
   renderBank() {
     this._saveScroll();
+    this._currentView = 'renderBank';
     const tags = this.getAllTags();
     const el = document.getElementById("view-dashboard");
     el.innerHTML = `
@@ -492,6 +502,7 @@ const App = {
   // ==================== 历史记录 ====================
   async renderHistory() {
     this._saveScroll();
+    this._currentView = 'renderHistory';
     let history = [];
     try { history = await Api.getTaskHistory(); } catch (e) {}
     const el = document.getElementById("view-dashboard");
@@ -530,6 +541,7 @@ const App = {
   // ==================== 个人信息 ====================
   renderProfile() {
     this._saveScroll();
+    this._currentView = 'renderProfile';
     const groupInfo = this.user.group || "未分组";
     const avatarUrl = this.user.avatarUrl || "";
     const el = document.getElementById("view-dashboard");
@@ -605,8 +617,24 @@ const App = {
   },
 
   // ==================== 小组展示 (OPT4) ====================
+  async loadGroup() {
+    try {
+      const data = await Api.getGroupDetail();
+      const el = document.getElementById("groupPageContent");
+      if (el) {
+        App.renderGroupContent(data);
+      }
+    } catch (e) {
+      const el = document.getElementById("groupPageContent");
+      if (el) {
+        el.innerHTML = `<p style="text-align:center;color:var(--text-secondary);padding:40px">${e.message}</p>`;
+      }
+    }
+  },
+
   async renderGroup() {
     this._saveScroll();
+    this._currentView = 'renderGroup';
     const el = document.getElementById("view-dashboard");
     el.innerHTML = `<div class="app-layout">
       ${this.getNavHTML('group')}

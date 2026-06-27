@@ -28,6 +28,7 @@ const Admin = {
             <a class="nav-link" id="nav-settings" onclick="Admin.switchPage('settings')">系统设置</a>
           </div>
           <div class="nav-user">
+            <button class="theme-toggle" onclick="App.toggleTheme()" title="切换亮/暗模式">${App.getThemeIcon()}</button>
             <span class="nav-user-name">系统管理员</span>
             <button class="btn-text" onclick="Admin.handleLogout()">退出</button>
           </div>
@@ -268,7 +269,7 @@ const Admin = {
             <button class="btn-small" onclick="Admin.deselectAllProblems('${phone}')">取消全选</button>
           </div>
           ${safeTasks.length === 0 ? '<p class="empty-text">暂无记录</p>' : safeTasks.map(t => `
-            <div class="task-record" style="margin-bottom:12px;padding:12px;background:rgba(255,255,255,0.02);border-radius:8px">
+            <div class="task-record" style="margin-bottom:12px;padding:12px;background:var(--surface-subtle);border-radius:8px">
               <div style="display:flex;justify-content:space-between;margin-bottom:4px">
                 <strong>${t.task_date || '-'}</strong>
                 <span>${(t.completed || []).length}/${(t.problems || []).length}</span>
@@ -461,14 +462,14 @@ const Admin = {
                   <td style="font-size:12px;color:var(--text-secondary)">▸</td>
                 </tr>
                 <tr class="log-detail-row" id="logDetail_${i}" style="display:none">
-                  <td colspan="6" style="padding:12px 16px;background:rgba(255,255,255,0.02);border-bottom:1px solid var(--border-dim)">
+                  <td colspan="6" style="padding:12px 16px;background:var(--log-detail-bg);border-bottom:1px solid var(--border)">
                     <div style="display:grid;gap:6px;font-size:12px;color:var(--text-secondary)">
                       <div><strong>手机号:</strong> ${l.phone}</div>
                       <div><strong>IP:</strong> ${l.ip}</div>
                       <div><strong>归属地:</strong> ${l.region}</div>
                       <div><strong>设备:</strong> ${l.device}</div>
                       <div><strong>登录时间:</strong> ${l.loginAt}</div>
-                      <div style="color:rgba(255,255,255,0.4);word-break:break-all"><strong>UA:</strong> ${l.userAgent || '-'}</div>
+                      <div style="color:var(--text-secondary);word-break:break-all"><strong>UA:</strong> ${l.userAgent || '-'}</div>
                     </div>
                     <button class="btn-small" style="margin-top:8px" onclick="event.stopPropagation();Admin.viewUserLogs('${l.phone}')">查看该用户全部日志</button>
                   </td>
