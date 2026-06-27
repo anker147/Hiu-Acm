@@ -918,6 +918,18 @@ async function handleRequest(request, db) {
 
 export default {
   async fetch(request, env) {
+    // 处理 CORS 预检请求（移动端等跨域场景必需）
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
+          "Access-Control-Max-Age": "86400"
+        }
+      });
+    }
     try {
       if (env.JWT_SECRET) JWT_SECRET = env.JWT_SECRET;
       return await handleRequest(request, env.DB);
