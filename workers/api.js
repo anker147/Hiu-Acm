@@ -35,45 +35,23 @@ function beijingTimeISO() {
   const d = new Date(Date.now() + 8 * 3600000);
   return d.toISOString().replace("Z", "+08:00");
 }
-// IP 归属地简易映射（中国主要省市）
-function ipToRegion(ip) {
+// IP 归属地查询 — 使用 ip-api.com 免费 API
+async function ipToLocation(ip) {
   if (!ip) return "未知";
   // 内网 IP
   if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|0\.)/.test(ip)) return "局域网";
-  // 简易省份映射（基于常见运营商IP段首段）
-  const map = {
-    "1": "北京", "14": "北京", "27": "北京", "36": "北京", "39": "北京", "49": "北京",
-    "42": "湖北", "58": "湖北", "59": "湖北", "60": "湖北", "61": "湖北",
-    "101": "北京", "103": "北京", "106": "北京", "110": "北京", "111": "北京",
-    "112": "北京", "113": "北京", "114": "北京", "115": "北京", "116": "北京",
-    "117": "北京", "118": "北京", "119": "北京", "120": "北京", "121": "北京",
-    "122": "北京", "123": "北京", "124": "北京", "125": "北京", "126": "北京",
-    "171": "广东", "175": "广东", "180": "广东", "182": "广东", "183": "广东",
-    "202": "广东", "203": "广东", "210": "广东", "211": "广东", "218": "广东",
-    "219": "广东", "220": "广东", "221": "广东", "222": "广东", "223": "广东",
-    "114": "广东", "116": "广东", "119": "广东", "121": "广东",
-    "58": "上海", "61": "上海", "101": "上海", "112": "上海", "114": "上海",
-    "116": "上海", "117": "上海", "118": "上海", "124": "上海", "180": "上海",
-    "202": "上海", "203": "上海", "210": "上海", "211": "上海", "218": "上海",
-    "219": "上海", "220": "上海", "221": "上海", "222": "上海",
-    "60": "浙江", "61": "浙江", "115": "浙江", "122": "浙江", "123": "浙江",
-    "125": "浙江", "183": "浙江", "202": "浙江", "218": "浙江",
-    "114": "江苏", "117": "江苏", "121": "江苏", "122": "江苏", "180": "江苏",
-    "218": "江苏", "221": "江苏", "222": "江苏", "223": "江苏",
-    "61": "四川", "110": "四川", "117": "四川", "118": "四川", "119": "四川",
-    "125": "四川", "171": "四川", "175": "四川", "182": "四川",
-    "113": "福建", "117": "福建", "120": "福建", "121": "福建", "125": "福建",
-    "175": "福建", "218": "福建", "220": "福建", "222": "福建",
-    "42": "湖南", "58": "湖南", "61": "湖南", "110": "湖南", "113": "湖南",
-    "118": "湖南", "119": "湖南", "175": "湖南", "222": "湖南",
-    "111": "山东", "112": "山东", "113": "山东", "119": "山东", "123": "山东",
-    "124": "山东", "182": "山东", "218": "山东",
-    "115": "河南", "123": "河南", "125": "河南", "171": "河南", "182": "河南",
-    "1": "河北", "27": "河北", "60": "河北", "101": "河北", "106": "河北",
-    "110": "河北", "111": "河北", "120": "河北", "121": "河北", "124": "河北",
-  };
-  const first = ip.split(".")[0];
-  return map[first] || "中国";
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`http://ip-api.com/json/${ip}?lang=zh-CN`, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) return "未知";
+    const data = await res.json();
+    if (data.status !== "success") return "未知";
+    return [data.country, data.regionName, data.city].filter(Boolean).join("-") || "未知";
+  } catch {
+    return "未知";
+  }
 }
 // UA 解析设备类型
 function parseUA(ua) {
@@ -423,19 +401,87 @@ async function handleAdminDashboard(db) {
 }
 
 async function handleAdminUsers(db, method, url, body) {
-  const urlObj = new URL(url);
-  const pathParts = urlObj.pathname.split("/");
+  // 安全获取 pathname：url 可能是 URL 对象或字符串
+  const pathname = url instanceof URL ? url.pathname : new URL(url).pathname;
+  const pathParts = pathname.split("/").filter(Boolean);
+  // pathParts: ["api","admin","users", ...]
+
+  // 正则快速匹配子路由
+  const problemsMatch = pathname.match(/\/api\/admin\/users\/([^\/]+)\/tasks\/([^\/]+)\/problems\/(\d+)\/?$/);
+  const tasksOnlyMatch = pathname.match(/\/api\/admin\/users\/([^\/]+)\/tasks\/([^\/]+)\/?$/);
+  const tasksListMatch = pathname.match(/\/api\/admin\/users\/([^\/]+)\/tasks\/?$/);
+  const accountMatch = pathname.match(/\/api\/admin\/users\/([^\/]+)\/account\/?$/);
+  const completeAllMatch = pathname.match(/\/api\/admin\/users\/([^\/]+)\/complete-all\/?$/);
+
   // 排除特殊路径词
   const specialPaths = ["users", "simple", "batch", "tasks", "complete-all"];
   const userId = (() => {
+    if (pathParts.length < 4) return null;
     const last = pathParts[pathParts.length - 1];
     if (!last || specialPaths.includes(last)) return null;
     return last;
   })();
 
-  // 子路由优先匹配（tasks 等特殊路径必须在通用 /users 匹配之前）
-  if (method === "GET" && pathParts.includes("tasks")) {
-    const tasksPhone = pathParts[pathParts.indexOf("tasks") - 1];
+  // ==================== DELETE 路由（优先匹配，避免 userId 干扰） ====================
+
+  // DELETE 删除题单中某道题: /api/admin/users/:phone/tasks/:date/problems/:id
+  if (method === "DELETE" && problemsMatch) {
+    const targetPhone = problemsMatch[1];
+    const taskDate = problemsMatch[2];
+    const problemId = parseInt(problemsMatch[3]);
+    if (!taskDate || !targetPhone || isNaN(problemId)) return err("参数不完整", 400);
+
+    const task = await db.prepare(
+      "SELECT * FROM daily_tasks WHERE phone = ? AND task_date = ?"
+    ).bind(targetPhone, taskDate).first();
+    if (!task) return err("未找到题单", 404);
+
+    let problems = JSON.parse(task.problems);
+    let completed = JSON.parse(task.completed);
+    const wasCompleted = completed.includes(problemId);
+    problems = problems.filter(id => id !== problemId);
+    completed = completed.filter(id => id !== problemId);
+
+    if (problems.length === 0) {
+      await db.prepare("DELETE FROM daily_tasks WHERE id = ?").bind(task.id).run();
+    } else {
+      await db.prepare("UPDATE daily_tasks SET problems = ?, completed = ?, updated_at = datetime('now') WHERE id = ?")
+        .bind(JSON.stringify(problems), JSON.stringify(completed), task.id).run();
+    }
+
+    await db.prepare(
+      "UPDATE problem_stats SET selected_count = MAX(0, selected_count - 1), completed_count = MAX(0, completed_count - ?) WHERE problem_id = ?"
+    ).bind(wasCompleted ? 1 : 0, problemId).run();
+
+    return json({ success: true, removed: problemId, wasCompleted });
+  }
+
+  // DELETE 清空某天全部题单: /api/admin/users/:phone/tasks/:date
+  if (method === "DELETE" && tasksOnlyMatch) {
+    const targetPhone = tasksOnlyMatch[1];
+    const taskDate = tasksOnlyMatch[2];
+    if (!taskDate || !targetPhone) return err("参数不完整", 400);
+    const result = await db.prepare("DELETE FROM daily_tasks WHERE phone = ? AND task_date = ?")
+      .bind(targetPhone, taskDate).run();
+    return json({ success: true, phone: targetPhone, taskDate, deleted: result.meta?.changes || 0 });
+  }
+
+  // DELETE 删除账号: /api/admin/users/:phone/account
+  if (method === "DELETE" && accountMatch) {
+    const targetPhone = accountMatch[1];
+    if (!targetPhone) return err("参数不完整", 400);
+    await db.prepare("DELETE FROM daily_tasks WHERE phone = ?").bind(targetPhone).run();
+    await db.prepare("DELETE FROM group_members WHERE phone = ?").bind(targetPhone).run();
+    await db.prepare("DELETE FROM login_logs WHERE phone = ?").bind(targetPhone).run();
+    await db.prepare("DELETE FROM users WHERE phone = ?").bind(targetPhone).run();
+    return json({ success: true, phone: targetPhone });
+  }
+
+  // ==================== GET 路由 ====================
+
+  // GET 用户题单列表: /api/admin/users/:phone/tasks
+  if (method === "GET" && tasksListMatch) {
+    const tasksPhone = tasksListMatch[1];
     const tasks = await db.prepare(
       "SELECT * FROM daily_tasks WHERE phone = ? ORDER BY task_date DESC"
     ).bind(tasksPhone).all();
@@ -444,8 +490,8 @@ async function handleAdminUsers(db, method, url, body) {
     })));
   }
 
+  // GET 用户列表
   if (method === "GET" && !userId) {
-    // 简化用户列表（供选择框使用）
     if (pathParts.includes("simple")) {
       const users = await db.prepare("SELECT phone, name FROM users WHERE is_admin = 0 ORDER BY name").all();
       return json(users.results);
@@ -457,7 +503,8 @@ async function handleAdminUsers(db, method, url, body) {
     })));
   }
 
-  if (method === "GET" && userId && userId !== "tasks") {
+  // GET 单个用户
+  if (method === "GET" && userId) {
     const user = await db.prepare("SELECT * FROM users WHERE phone = ?").bind(userId).first();
     if (!user) return err("用户不存在", 404);
     return json({
@@ -465,6 +512,8 @@ async function handleAdminUsers(db, method, url, body) {
       codeExpiry: user.code_expiry, avatarUrl: user.avatar_url, createdAt: user.created_at
     });
   }
+
+  // ==================== POST 路由 ====================
 
   if (method === "POST") {
     // 批量导入
@@ -482,7 +531,6 @@ async function handleAdminUsers(db, method, url, body) {
           await db.prepare(
             "INSERT INTO users (phone, name, code_hash, code_type) VALUES (?, ?, ?, 'permanent')"
           ).bind(phone, name, codeHash).run();
-          // 分配小组
           if (group_name) {
             let group = await db.prepare("SELECT id FROM groups_table WHERE name = ?").bind(group_name).first();
             if (!group) {
@@ -499,6 +547,7 @@ async function handleAdminUsers(db, method, url, body) {
       return json(results);
     }
 
+    // 单个创建用户
     const { phone, name, code, codeType, codeExpiry } = body;
     if (!phone || !name) return err("手机号和姓名不能为空");
     const existing = await db.prepare("SELECT phone FROM users WHERE phone = ?").bind(phone).first();
@@ -510,9 +559,9 @@ async function handleAdminUsers(db, method, url, body) {
     return json({ success: true, phone });
   }
 
-  if (method === "POST" && pathParts.includes("complete-all")) {
-    // 批量标记完成：POST /api/admin/users/:phone/complete-all
-    const targetPhone = pathParts[pathParts.indexOf("complete-all") - 1];
+  // POST 批量标记完成: /api/admin/users/:phone/complete-all
+  if (method === "POST" && completeAllMatch) {
+    const targetPhone = completeAllMatch[1];
     const { problemIds, taskDate } = body;
     if (!problemIds || !Array.isArray(problemIds)) return err("题目ID列表不能为空");
     const date = taskDate || beijingDateStr();
@@ -543,11 +592,13 @@ async function handleAdminUsers(db, method, url, body) {
     return json(results);
   }
 
+  // ==================== PUT 路由 ====================
+
   if (method === "PUT" && !pathParts.includes("tasks")) {
+    // PUT /api/admin/users/:phone — 更新用户信息或修改完成状态
     const { name, code, codeType, codeExpiry, completedDate, problemId, completed: isCompleted } = body;
 
     if (completedDate && problemId) {
-      // 手动修改完成状态
       const task = await db.prepare(
         "SELECT * FROM daily_tasks WHERE phone = ? AND task_date = ?"
       ).bind(userId, completedDate).first();
@@ -579,52 +630,12 @@ async function handleAdminUsers(db, method, url, body) {
     return json({ success: true });
   }
 
-  // 删除题单中某道题：DELETE /api/admin/users/:phone/tasks/:taskDate/problems/:problemId
-  if (method === "DELETE" && pathParts.includes("problems")) {
-    const probIdx = pathParts.indexOf("problems");
-    const taskDate = pathParts[probIdx - 1];
-    const targetPhone = pathParts[probIdx - 2];
-    const problemId = parseInt(pathParts[probIdx + 1]);
-    if (!taskDate || !targetPhone || isNaN(problemId)) return err("参数不完整", 400);
-
-    const task = await db.prepare(
-      "SELECT * FROM daily_tasks WHERE phone = ? AND task_date = ?"
-    ).bind(targetPhone, taskDate).first();
-    if (!task) return err("未找到题单", 404);
-
-    let problems = JSON.parse(task.problems);
-    let completed = JSON.parse(task.completed);
-    const wasCompleted = completed.includes(problemId);
-    problems = problems.filter(id => id !== problemId);
-    completed = completed.filter(id => id !== problemId);
-
-    if (problems.length === 0) {
-      await db.prepare("DELETE FROM daily_tasks WHERE id = ?").bind(task.id).run();
-    } else {
-      await db.prepare("UPDATE daily_tasks SET problems = ?, completed = ?, updated_at = datetime('now') WHERE id = ?")
-        .bind(JSON.stringify(problems), JSON.stringify(completed), task.id).run();
-    }
-
-    await db.prepare(
-      "UPDATE problem_stats SET selected_count = MAX(0, selected_count - 1), completed_count = MAX(0, completed_count - ?) WHERE problem_id = ?"
-    ).bind(wasCompleted ? 1 : 0, problemId).run();
-
-    return json({ success: true, removed: problemId, wasCompleted });
-  }
-
-  if (method === "DELETE") {
-    await db.prepare("DELETE FROM users WHERE phone = ?").bind(userId).run();
-    await db.prepare("DELETE FROM daily_tasks WHERE phone = ?").bind(userId).run();
-    await db.prepare("DELETE FROM group_members WHERE phone = ?").bind(userId).run();
-    return json({ success: true });
-  }
-
   return err("未知操作", 404);
 }
 
 async function handleAdminGroups(db, method, url, body) {
-  const urlObj = new URL(url);
-  const pathParts = urlObj.pathname.split("/").filter(Boolean);
+  const pathname = url instanceof URL ? url.pathname : new URL(url).pathname;
+  const pathParts = pathname.split("/").filter(Boolean);
   // path: /api/admin/groups 或 /api/admin/groups/:id
   const groupId = pathParts.length >= 4 ? pathParts[3] : null;
 
@@ -682,8 +693,8 @@ async function handleAdminGroups(db, method, url, body) {
 }
 
 async function handleAdminLoginLogs(db, url) {
-  const urlObj = new URL(url);
-  const pathParts = urlObj.pathname.split("/").filter(Boolean);
+  const pathname = url instanceof URL ? url.pathname : new URL(url).pathname;
+  const pathParts = pathname.split("/").filter(Boolean);
   // path: /api/admin/login-logs 或 /api/admin/login-logs/:phone
   const phone = pathParts.length >= 4 ? pathParts[3] : null;
 
@@ -692,27 +703,29 @@ async function handleAdminLoginLogs(db, url) {
     const logs = await db.prepare(
       "SELECT * FROM login_logs WHERE phone = ? ORDER BY login_at DESC LIMIT 200"
     ).bind(phone).all();
-    return json(logs.results.map(l => ({
+    const enriched = await Promise.all(logs.results.map(async l => ({
       phone: l.phone,
       ip: l.ip || "-",
-      region: ipToRegion(l.ip),
+      region: await ipToLocation(l.ip),
       device: parseUA(l.user_agent || ""),
       userAgent: l.user_agent || "-",
       loginAt: l.login_at || "-"
     })));
+    return json(enriched);
   }
 
   const logs = await db.prepare(
     "SELECT * FROM login_logs ORDER BY login_at DESC LIMIT 100"
   ).all();
-  return json(logs.results.map(l => ({
+  const enriched = await Promise.all(logs.results.map(async l => ({
     phone: l.phone,
     ip: l.ip || "-",
-    region: ipToRegion(l.ip),
+    region: await ipToLocation(l.ip),
     device: parseUA(l.user_agent || ""),
     userAgent: l.user_agent || "-",
     loginAt: l.login_at || "-"
   })));
+  return json(enriched);
 }
 
 async function handleAdminSettings(db, method, body) {

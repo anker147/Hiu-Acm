@@ -160,7 +160,8 @@ const Admin = {
                   <td class="action-cell">
                     <button class="btn-small" onclick="Admin.showEditUser('${u.phone}','${u.name}','${u.codeType}')">编辑</button>
                     <button class="btn-small" onclick="Admin.showUserTasks('${u.phone}','${u.name}')">题单</button>
-                    <button class="btn-small btn-danger" onclick="Admin.deleteUser('${u.phone}')">删除</button>
+                    <button class="btn-small" onclick="Admin.clearDayTasks('${u.phone}')">清空当日题单</button>
+                    <button class="btn-small btn-danger" onclick="Admin.deleteUser('${u.phone}')">删除账号</button>
                   </td>
                 </tr>
               `).join("")}
@@ -246,9 +247,19 @@ const Admin = {
   },
 
   async deleteUser(phone) {
-    if (!confirm(`确定删除用户 ${phone} ？`)) return;
+    if (!confirm(`确定删除用户 ${phone} 及其所有数据（题单、小组、登录日志）？此操作不可撤销！`)) return;
     try {
-      await Api.adminDeleteUser(phone);
+      await Api.adminDeleteUserAccount(phone);
+      this.renderUsers();
+    } catch (e) { alert(e.message); }
+  },
+
+  async clearDayTasks(phone) {
+    const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    if (!confirm(`确定清空 ${phone} 在 ${today} 的全部题单？`)) return;
+    try {
+      await Api.adminDeleteUserTasks(phone, today);
+      alert("已清空当日题单");
       this.renderUsers();
     } catch (e) { alert(e.message); }
   },

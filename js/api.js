@@ -172,6 +172,18 @@ const Api = {
     });
   },
 
+  async adminDeleteUserTasks(phone, taskDate) {
+    return this.fetch(`/api/admin/users/${phone}/tasks/${taskDate}`, {
+      method: "DELETE"
+    });
+  },
+
+  async adminDeleteUserAccount(phone) {
+    return this.fetch(`/api/admin/users/${phone}/account`, {
+      method: "DELETE"
+    });
+  },
+
   async adminLoginLogs() {
     return this.fetch("/api/admin/login-logs");
   },
