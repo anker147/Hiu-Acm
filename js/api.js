@@ -2,9 +2,11 @@
 // 所有数据操作通过 Cloudflare Pages Functions 反代到 Worker
 // 生产环境：前端 + /api/* 同源（Cloudflare Pages），走 Pages CDN，国内可达性更好
 // 本地调试：直连 Worker（localhost/127.0.0.1 时自动切换）
+// 注意：前端调用方写的是 this.fetch("/api/login")，所以生产环境 API_BASE 必须是空串，
+//       否则会拼成 /api/api/login（双层 /api 前缀 bug）
 const API_BASE = (location.hostname === "127.0.0.1" || location.hostname === "localhost")
   ? "https://hiu-acm-api.wangyiyouxiang0719.workers.dev"
-  : "/api";
+  : "";
 
 const Api = {
   token: null,
