@@ -234,7 +234,8 @@ async function handleCreateDailyTasks(db, authPayload, body) {
 
 async function handleCompleteProblem(db, authPayload, body) {
   const { problemId, taskDate } = body;
-  if (!problemId) return err("题目ID不能为空");
+  if (problemId === undefined || problemId === null) return err("题目ID不能为空");
+  const pid = String(problemId); // 统一字符串比较
   const date = taskDate || beijingDateStr();
 
   const task = await db.prepare(
@@ -242,33 +243,33 @@ async function handleCompleteProblem(db, authPayload, body) {
   ).bind(authPayload.phone, date).first();
   if (!task) return err("未找到题单");
 
-  const problems = JSON.parse(task.problems);
-  if (!problems.includes(problemId)) return err("该题目不在题单中");
+  const problems = JSON.parse(task.problems).map(id => String(id));
+  if (!problems.includes(pid)) return err("该题目不在题单中");
 
-  let completed = JSON.parse(task.completed);
-  if (completed.includes(problemId)) {
+  let completed = JSON.parse(task.completed).map(id => String(id));
+  if (completed.includes(pid)) {
     // 取消完成：移除并减计数
-    completed = completed.filter(id => id !== problemId);
+    completed = completed.filter(id => id !== pid);
   } else {
     // 新标记完成：先加入列表
-    completed = [...completed, problemId];
+    completed = [...completed, pid];
   }
 
   await db.prepare("UPDATE daily_tasks SET completed = ?, updated_at = datetime('now') WHERE id = ?")
     .bind(JSON.stringify(completed), task.id).run();
 
   // 更新题目完成统计（仅在首次标记完成时递增）
-  const oldCompleted = JSON.parse(task.completed);
-  if (!oldCompleted.includes(problemId)) {
+  const oldCompleted = JSON.parse(task.completed).map(id => String(id));
+  if (!oldCompleted.includes(pid)) {
     // 新标记完成 → 递增
     await db.prepare(
       "UPDATE problem_stats SET completed_count = completed_count + 1 WHERE problem_id = ?"
-    ).bind(problemId).run();
+    ).bind(pid).run();
   } else {
     // 取消完成 → 递减（不低于0）
     await db.prepare(
       "UPDATE problem_stats SET completed_count = MAX(0, completed_count - 1) WHERE problem_id = ?"
-    ).bind(problemId).run();
+    ).bind(pid).run();
   }
 
   return json({ completed });
@@ -335,64 +336,79 @@ async function handleAdminDashboard(db) {
     db.prepare("SELECT COUNT(*) as c FROM problems").first(),
   ]);
 
-  // 今日统计
   const today = beijingDateStr();
-  const todayTasks = await db.prepare("SELECT * FROM daily_tasks WHERE task_date = ?").bind(today).all();
-  const todayStats = { total: todayTasks.results.length, completed: 0 };
-  for (const t of todayTasks.results) {
-    const completed = JSON.parse(t.completed);
-    const total = JSON.parse(t.problems);
-    if (completed.length >= total.length) todayStats.completed++;
+
+  // 一次性并行拉取所有用户、全部题单、全部小组、全部成员关系，避免 N+1 查询
+  const [allUsers, allTasks, allGroups, allMembers] = await Promise.all([
+    db.prepare("SELECT phone, name FROM users WHERE is_admin = 0").all(),
+    db.prepare("SELECT phone, task_date, problems, completed FROM daily_tasks").all(),
+    db.prepare("SELECT id, name, leader_phone FROM groups_table").all(),
+    db.prepare("SELECT group_id, phone FROM group_members").all(),
+  ]);
+
+  // 预解析题单，按手机号分组
+  const tasksByPhone = {};
+  for (const t of allTasks.results) {
+    if (!tasksByPhone[t.phone]) tasksByPhone[t.phone] = [];
+    tasksByPhone[t.phone].push({
+      task_date: t.task_date,
+      problems: JSON.parse(t.problems),
+      completed: JSON.parse(t.completed)
+    });
   }
+
+  // 用户名映射
+  const userName = {};
+  for (const u of allUsers.results) userName[u.phone] = u.name;
 
   // 完成率排行
-  const allUsers = await db.prepare("SELECT phone, name FROM users WHERE is_admin = 0").all();
-  const ranking = [];
-  for (const u of allUsers.results) {
-    const tasks = await db.prepare(
-      "SELECT problems, completed FROM daily_tasks WHERE phone = ?"
-    ).bind(u.phone).all();
+  const ranking = allUsers.results.map(u => {
+    const tasks = tasksByPhone[u.phone] || [];
     let total = 0, done = 0;
-    for (const t of tasks.results) {
-      const p = JSON.parse(t.problems);
-      const c = JSON.parse(t.completed);
-      total += p.length;
-      done += c.length;
-    }
-    ranking.push({ phone: u.phone, name: u.name, total, done, rate: total > 0 ? Math.round(done / total * 100) : 0 });
-  }
+    for (const t of tasks) { total += t.problems.length; done += t.completed.length; }
+    return { phone: u.phone, name: u.name, total, done, rate: total > 0 ? Math.round(done / total * 100) : 0 };
+  });
   ranking.sort((a, b) => b.rate - a.rate);
 
-  // 小组统计
-  const groups = await db.prepare("SELECT * FROM groups_table").all();
-  const groupStats = [];
-  for (const g of groups.results) {
-    const members = await db.prepare("SELECT phone FROM group_members WHERE group_id = ?").bind(g.id).all();
-    let total = 0, done = 0;
-    for (const m of members.results) {
-      const tasks = await db.prepare("SELECT problems, completed FROM daily_tasks WHERE phone = ?").bind(m.phone).all();
-      for (const t of tasks.results) {
-        total += JSON.parse(t.problems).length;
-        done += JSON.parse(t.completed).length;
+  // 今日统计 + 今日题单详情（从已聚合数据中筛当日）
+  const todayTasks = [];
+  for (const u of allUsers.results) {
+    const tasks = tasksByPhone[u.phone] || [];
+    for (const t of tasks) {
+      if (t.task_date === today) {
+        todayTasks.push({ phone: u.phone, problems: t.problems, completed: t.completed });
       }
     }
-    groupStats.push({ id: g.id, name: g.name, memberCount: members.results.length, total, done, rate: total > 0 ? Math.round(done / total * 100) : 0 });
   }
+  const todayStats = { total: todayTasks.length, completed: 0 };
+  for (const t of todayTasks) {
+    if (t.completed.length >= t.problems.length) todayStats.completed++;
+  }
+  const todayDetails = todayTasks.map(t => ({
+    phone: t.phone, name: userName[t.phone] || t.phone,
+    problems: t.problems, completed: t.completed
+  }));
+
+  // 小组统计
+  const membersByGroup = {};
+  for (const m of allMembers.results) {
+    if (!membersByGroup[m.group_id]) membersByGroup[m.group_id] = [];
+    membersByGroup[m.group_id].push(m.phone);
+  }
+  const groupStats = allGroups.results.map(g => {
+    const members = membersByGroup[g.id] || [];
+    let total = 0, done = 0;
+    for (const phone of members) {
+      const tasks = tasksByPhone[phone] || [];
+      for (const t of tasks) { total += t.problems.length; done += t.completed.length; }
+    }
+    return { id: g.id, name: g.name, memberCount: members.length, total, done, rate: total > 0 ? Math.round(done / total * 100) : 0 };
+  });
 
   // 热门题目
   const hotProblems = await db.prepare(
     "SELECT ps.*, p.title FROM problem_stats ps JOIN problems p ON ps.problem_id = p.nowcoder_id ORDER BY ps.selected_count DESC LIMIT 10"
   ).all();
-
-  // 今日题单详情
-  const todayDetails = [];
-  for (const t of todayTasks.results) {
-    const user = await db.prepare("SELECT name FROM users WHERE phone = ?").bind(t.phone).first();
-    todayDetails.push({
-      phone: t.phone, name: user?.name || t.phone,
-      problems: JSON.parse(t.problems), completed: JSON.parse(t.completed)
-    });
-  }
 
   return json({
     userCount: userCount.c, groupCount: groupCount.c, problemCount: problemCount.c,
@@ -412,6 +428,7 @@ async function handleAdminUsers(db, method, url, body) {
   const tasksListMatch = pathname.match(/\/api\/admin\/users\/([^\/]+)\/tasks\/?$/);
   const accountMatch = pathname.match(/\/api\/admin\/users\/([^\/]+)\/account\/?$/);
   const completeAllMatch = pathname.match(/\/api\/admin\/users\/([^\/]+)\/complete-all\/?$/);
+  const batchDeleteMatch = pathname.match(/\/api\/admin\/users\/([^\/]+)\/tasks\/batch-delete\/?$/);
 
   // 排除特殊路径词
   const specialPaths = ["users", "simple", "batch", "tasks", "complete-all"];
@@ -428,16 +445,17 @@ async function handleAdminUsers(db, method, url, body) {
   if (method === "DELETE" && problemsMatch) {
     const targetPhone = problemsMatch[1];
     const taskDate = problemsMatch[2];
-    const problemId = parseInt(problemsMatch[3]);
-    if (!taskDate || !targetPhone || isNaN(problemId)) return err("参数不完整", 400);
+    const problemId = problemsMatch[3]; // 保持字符串，与 daily_tasks.problems 存储类型一致
+    if (!taskDate || !targetPhone || !problemId) return err("参数不完整", 400);
 
     const task = await db.prepare(
       "SELECT * FROM daily_tasks WHERE phone = ? AND task_date = ?"
     ).bind(targetPhone, taskDate).first();
     if (!task) return err("未找到题单", 404);
 
-    let problems = JSON.parse(task.problems);
-    let completed = JSON.parse(task.completed);
+    // 统一转为字符串比较，避免 "1001" !== 1001 的类型陷阱
+    let problems = JSON.parse(task.problems).map(id => String(id));
+    let completed = JSON.parse(task.completed).map(id => String(id));
     const wasCompleted = completed.includes(problemId);
     problems = problems.filter(id => id !== problemId);
     completed = completed.filter(id => id !== problemId);
@@ -567,29 +585,75 @@ async function handleAdminUsers(db, method, url, body) {
     const date = taskDate || beijingDateStr();
     const results = { success: [], skipped: [] };
 
-    for (const problemId of problemIds) {
-      const task = await db.prepare(
-        "SELECT * FROM daily_tasks WHERE phone = ? AND task_date = ?"
-      ).bind(targetPhone, date).first();
-      if (!task) continue;
+    // 一次性查出该天题单，避免循环内反复查询
+    const task = await db.prepare(
+      "SELECT * FROM daily_tasks WHERE phone = ? AND task_date = ?"
+    ).bind(targetPhone, date).first();
+    if (!task) return json(results);
 
-      const problems = JSON.parse(task.problems);
-      if (!problems.includes(problemId)) continue;
+    let problems = JSON.parse(task.problems).map(id => String(id));
+    let completed = JSON.parse(task.completed).map(id => String(id));
+    let changed = false;
 
-      let completed = JSON.parse(task.completed);
-      if (completed.includes(problemId)) {
-        results.skipped.push(problemId);
-        continue;
-      }
-      completed = [...completed, problemId];
+    for (const rawId of problemIds) {
+      const pid = String(rawId);
+      if (!problems.includes(pid)) continue;
+      if (completed.includes(pid)) { results.skipped.push(pid); continue; }
+      completed.push(pid);
+      results.success.push(pid);
+      changed = true;
+    }
+
+    if (changed) {
       await db.prepare("UPDATE daily_tasks SET completed = ?, updated_at = datetime('now') WHERE id = ?")
         .bind(JSON.stringify(completed), task.id).run();
-      await db.prepare(
-        "UPDATE problem_stats SET completed_count = completed_count + 1 WHERE problem_id = ?"
-      ).bind(problemId).run();
-      results.success.push(problemId);
+      // 批量更新统计
+      for (const pid of results.success) {
+        await db.prepare(
+          "UPDATE problem_stats SET completed_count = completed_count + 1 WHERE problem_id = ?"
+        ).bind(pid).run();
+      }
     }
     return json(results);
+  }
+
+  // POST 批量删除题单中的题目: /api/admin/users/:phone/tasks/batch-delete
+  if (method === "POST" && batchDeleteMatch) {
+    const targetPhone = batchDeleteMatch[1];
+    const { taskDate, problemIds } = body;
+    if (!taskDate || !problemIds || !Array.isArray(problemIds)) return err("taskDate 和 problemIds 不能为空");
+    const date = taskDate || beijingDateStr();
+
+    const task = await db.prepare(
+      "SELECT * FROM daily_tasks WHERE phone = ? AND task_date = ?"
+    ).bind(targetPhone, date).first();
+    if (!task) return err("未找到题单", 404);
+
+    const pids = problemIds.map(id => String(id));
+    let problems = JSON.parse(task.problems).map(id => String(id));
+    let completed = JSON.parse(task.completed).map(id => String(id));
+
+    let removedCount = 0;
+    for (const pid of pids) {
+      if (!problems.includes(pid)) continue;
+      const wasCompleted = completed.includes(pid);
+      problems = problems.filter(id => id !== pid);
+      completed = completed.filter(id => id !== pid);
+      removedCount++;
+      // 更新统计
+      await db.prepare(
+        "UPDATE problem_stats SET selected_count = MAX(0, selected_count - 1), completed_count = MAX(0, completed_count - ?) WHERE problem_id = ?"
+      ).bind(wasCompleted ? 1 : 0, pid).run();
+    }
+
+    if (problems.length === 0) {
+      await db.prepare("DELETE FROM daily_tasks WHERE id = ?").bind(task.id).run();
+    } else {
+      await db.prepare("UPDATE daily_tasks SET problems = ?, completed = ?, updated_at = datetime('now') WHERE id = ?")
+        .bind(JSON.stringify(problems), JSON.stringify(completed), task.id).run();
+    }
+
+    return json({ success: true, removed: removedCount });
   }
 
   // ==================== PUT 路由 ====================
@@ -599,15 +663,16 @@ async function handleAdminUsers(db, method, url, body) {
     const { name, code, codeType, codeExpiry, completedDate, problemId, completed: isCompleted } = body;
 
     if (completedDate && problemId) {
+      const pid = String(problemId);
       const task = await db.prepare(
         "SELECT * FROM daily_tasks WHERE phone = ? AND task_date = ?"
       ).bind(userId, completedDate).first();
       if (!task) return err("未找到题单");
-      let completed = JSON.parse(task.completed);
+      let completed = JSON.parse(task.completed).map(id => String(id));
       if (isCompleted) {
-        if (!completed.includes(problemId)) completed.push(problemId);
+        if (!completed.includes(pid)) completed.push(pid);
       } else {
-        completed = completed.filter(id => id !== problemId);
+        completed = completed.filter(id => id !== pid);
       }
       await db.prepare("UPDATE daily_tasks SET completed = ? WHERE id = ?")
         .bind(JSON.stringify(completed), task.id).run();
@@ -692,6 +757,25 @@ async function handleAdminGroups(db, method, url, body) {
   return err("未知操作", 404);
 }
 
+// 单条日志富化：优先用已缓存的 region/device，缺失时实时查并回写（避免重复调用外部 API）
+async function enrichLog(db, l) {
+  let region = l.region || "";
+  if (!region && l.ip) {
+    region = await ipToLocation(l.ip);
+    try {
+      await db.prepare("UPDATE login_logs SET region = ? WHERE id = ?").bind(region, l.id).run();
+    } catch { /* 回写失败忽略 */ }
+  }
+  return {
+    phone: l.phone,
+    ip: l.ip || "-",
+    region,
+    device: l.device || parseUA(l.user_agent || ""),
+    userAgent: l.user_agent || "-",
+    loginAt: l.login_at || "-"
+  };
+}
+
 async function handleAdminLoginLogs(db, url) {
   const pathname = url instanceof URL ? url.pathname : new URL(url).pathname;
   const pathParts = pathname.split("/").filter(Boolean);
@@ -699,33 +783,16 @@ async function handleAdminLoginLogs(db, url) {
   const phone = pathParts.length >= 4 ? pathParts[3] : null;
 
   if (phone) {
-    // 单用户日志详情
     const logs = await db.prepare(
       "SELECT * FROM login_logs WHERE phone = ? ORDER BY login_at DESC LIMIT 200"
     ).bind(phone).all();
-    const enriched = await Promise.all(logs.results.map(async l => ({
-      phone: l.phone,
-      ip: l.ip || "-",
-      region: await ipToLocation(l.ip),
-      device: parseUA(l.user_agent || ""),
-      userAgent: l.user_agent || "-",
-      loginAt: l.login_at || "-"
-    })));
-    return json(enriched);
+    return json(await Promise.all(logs.results.map(l => enrichLog(db, l))));
   }
 
   const logs = await db.prepare(
     "SELECT * FROM login_logs ORDER BY login_at DESC LIMIT 100"
   ).all();
-  const enriched = await Promise.all(logs.results.map(async l => ({
-    phone: l.phone,
-    ip: l.ip || "-",
-    region: await ipToLocation(l.ip),
-    device: parseUA(l.user_agent || ""),
-    userAgent: l.user_agent || "-",
-    loginAt: l.login_at || "-"
-  })));
-  return json(enriched);
+  return json(await Promise.all(logs.results.map(l => enrichLog(db, l))));
 }
 
 async function handleAdminSettings(db, method, body) {
@@ -754,6 +821,28 @@ async function handleAdminSettings(db, method, body) {
   return err("未知操作", 404);
 }
 
+// 重置题库统计 + 清空所有题单
+async function handleAdminResetData(db, body) {
+  const { scope } = body || {};
+  const result = { stats: 0, tasks: 0 };
+
+  if (!scope || scope === "stats" || scope === "all") {
+    // 重置所有题目的被选/完成计数为 0
+    const r = await db.prepare(
+      "UPDATE problem_stats SET selected_count = 0, completed_count = 0"
+    ).run();
+    result.stats = r.meta?.changes || 0;
+  }
+
+  if (!scope || scope === "tasks" || scope === "all") {
+    // 清空所有用户的每日题单（题集选择）
+    const r = await db.prepare("DELETE FROM daily_tasks").run();
+    result.tasks = r.meta?.changes || 0;
+  }
+
+  return json({ success: true, ...result });
+}
+
 // ==================== 请求处理 ====================
 
 async function handleRequest(request, db) {
@@ -778,42 +867,31 @@ async function handleRequest(request, db) {
     try { body = await request.json(); } catch { /* no body */ }
   }
 
-  // 记录登录日志
+  // 登录：只调用一次 handleLogin，登录成功后记录日志（含 IP 归属地/设备，避免查询时实时调用外部 API）
   if (path === "/api/login" && method === "POST") {
     const ip = request.headers.get("CF-Connecting-IP") || "";
     const ua = request.headers.get("User-Agent") || "";
+    const result = await handleLogin(db, body);
     try {
-      const result = await handleLogin(db, body);
-      // 异步记录日志
       const resp = result.clone();
       const data = await resp.json();
       if (data.token && body.phone) {
-        await db.prepare("INSERT INTO login_logs (phone, ip, user_agent, login_at) VALUES (?, ?, ?, ?)")
-          .bind(body.phone, ip, ua, beijingTime()).run();
+        const device = parseUA(ua);
+        const region = await ipToLocation(ip);
+        await db.prepare(
+          "INSERT INTO login_logs (phone, ip, user_agent, login_at, region, device) VALUES (?, ?, ?, ?, ?, ?)"
+        ).bind(body.phone, ip, ua, beijingTime(), region, device).run();
       }
-      return result;
-    } catch {
-      return handleLogin(db, body);
-    }
+    } catch { /* 日志记录失败不影响登录返回 */ }
+    return result;
   }
 
   // 健康检查
   if (path === "/api/health") return json({ status: "ok", db: !!db, time: Date.now() });
 
-  // 不需要认证的路由
-  if (path === "/api/login" && method === "POST") return handleLogin(db, body);
-
   // 需要认证的路由
   const authPayload = await auth(request);
   if (!authPayload) return err("未登录或令牌已过期", 401);
-
-  // 记录普通用户登录日志（GET /api/me 视为登录确认）
-  if (path === "/api/me" && method === "GET") {
-    const ip = request.headers.get("CF-Connecting-IP") || "";
-    const ua = request.headers.get("User-Agent") || "";
-    await db.prepare("INSERT INTO login_logs (phone, ip, user_agent, login_at) VALUES (?, ?, ?, ?)")
-      .bind(authPayload.phone, ip, ua.slice(0, 500), beijingTime()).run();
-  }
 
   // 路由分发
   if (path === "/api/me") return handleMe(db, authPayload, method, body);
@@ -833,6 +911,7 @@ async function handleRequest(request, db) {
   if (path.startsWith("/api/admin/groups")) return handleAdminGroups(db, method, url, body);
   if (path.startsWith("/api/admin/login-logs")) return handleAdminLoginLogs(db, url);
   if (path === "/api/admin/settings") return handleAdminSettings(db, method, body);
+  if (path === "/api/admin/reset-data" && method === "POST") return handleAdminResetData(db, body);
 
   return err("接口不存在", 404);
 }

@@ -72,11 +72,11 @@ const App = {
       <nav class="app-nav">
         <div class="nav-brand"><span style="font-size:20px">🏠</span> HIU-ACM</div>
         <div class="nav-links">
-          <a class="nav-link ${activeLink==='selection'||activeLink==='today'?'active':''}" onclick="App.renderTodayTasksOrSelection()">${this.todayTasks ? '今日题单' : '选择题单'}</a>
-          <a class="nav-link ${activeLink==='bank'?'active':''}" onclick="App.renderBank()">题库浏览</a>
-          <a class="nav-link ${activeLink==='history'?'active':''}" onclick="App.renderHistory()">历史记录</a>
-          <a class="nav-link ${activeLink==='group'?'active':''}" onclick="App.renderGroup()">小组展示</a>
-          <a class="nav-link ${activeLink==='profile'?'active':''}" onclick="App.renderProfile()">个人信息</a>
+          <a class="nav-link ${activeLink === 'selection' || activeLink === 'today' ? 'active' : ''}" onclick="App.renderTodayTasksOrSelection()">${this.todayTasks ? '今日题单' : '选择题单'}</a>
+          <a class="nav-link ${activeLink === 'bank' ? 'active' : ''}" onclick="App.renderBank()">题库浏览</a>
+          <a class="nav-link ${activeLink === 'history' ? 'active' : ''}" onclick="App.renderHistory()">历史记录</a>
+          <a class="nav-link ${activeLink === 'group' ? 'active' : ''}" onclick="App.renderGroup()">小组展示</a>
+          <a class="nav-link ${activeLink === 'profile' ? 'active' : ''}" onclick="App.renderProfile()">个人信息</a>
         </div>
         <div class="nav-user">
           <button class="theme-toggle" onclick="App.toggleTheme()" title="切换亮/暗模式">${this.getThemeIcon()}</button>
@@ -118,8 +118,12 @@ const App = {
       Api.getMe().catch(() => null)
     ]);
     this.problems = problems;
+    // 后端返回 selected_count/completed_count（下划线），统一映射为驼峰供前端使用
     const statMap = {};
-    for (const s of stats) statMap[s.problem_id] = s;
+    for (const s of stats) statMap[s.problem_id] = {
+      selectedCount: s.selected_count ?? 0,
+      completedCount: s.completed_count ?? 0
+    };
     this.stats = statMap;
     this.todayTasks = todayTasks;
     if (me) this.user = { ...this.user, ...me };
@@ -148,7 +152,7 @@ const App = {
               <label class="input-label">手机号</label>
               <div class="input-wrapper">
                 <span class="input-icon"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="12" height="10" rx="2"/><line x1="8" y1="11" x2="8" y2="13"/></svg></span>
-                <input type="text" id="loginPhone" class="input-field" placeholder="输入手机号 或 admin" autocomplete="off" style="padding-left:40px">
+                <input type="text" id="loginPhone" class="input-field" placeholder="输入手机号" autocomplete="off" style="padding-left:40px">
               </div>
             </div>
             <div class="input-group">
@@ -161,7 +165,6 @@ const App = {
             <div id="loginError" class="login-error hidden"></div>
             <button id="loginBtn" class="btn-primary login-btn" onclick="App.handleLogin()">登 录</button>
           </div>
-          <p class="login-footer">管理员使用 admin + 密码登录</p>
         </div>
       </div>
     `;
@@ -341,7 +344,8 @@ const App = {
 
   handleSearch(query) {
     this.searchQuery = query;
-    this.renderSelection();
+    // 仅刷新题目网格，避免整页 re-render 导致搜索框失焦
+    this.renderProblemGridOnly('selection');
   },
 
   toggleProblem(id) {
@@ -358,7 +362,7 @@ const App = {
         this.selected.push(id);
       }
     }
-    if (this.selected.length > 20) { this.selected.shift(); alert("最多20道题"); }
+    if (this.selected.length > 20) { this.selected.pop(); alert("最多20道题"); }
     this.renderSelection();
   },
 
@@ -477,7 +481,6 @@ const App = {
 
   renderStatCard(p) {
     const stat = this.stats[p.nowcoder_id] || {};
-    // BUG1: 题库浏览中标记已选题
     const inToday = this.todayTasks && this.todayTasks.problems.includes(p.nowcoder_id);
     return `
       <div class="problem-card glass-card ${inToday ? 'selected' : ''}">
@@ -487,16 +490,25 @@ const App = {
         </div>
         <div class="prob-title">${p.title}</div>
         <div class="prob-tags">${(p.tags || []).map(t => `<span class="prob-tag">${t}</span>`).join("") || '<span class="prob-tag no-tag">未分类</span>'}</div>
-        <div class="prob-stats"><span>被选 ${stat.selectedCount||0} 次</span><span>完成 ${stat.completedCount||0} 次</span></div>
+        <div class="prob-stats"><span>被选 ${stat.selectedCount || 0} 次</span><span>完成 ${stat.completedCount || 0} 次</span></div>
       </div>
     `;
   },
 
   setFilterView(tag) { this.filterTag = tag; this.renderBank(); },
-  searchView(q) { this.searchQuery = q; this.renderBank(); },
-  renderTodayTasksOrSelection() {
-    if (this.todayTasks) this.renderTodayTasks();
-    else this.renderSelection();
+  searchView(q) { this.searchQuery = q; this.renderProblemGridOnly('bank'); },
+
+  // 只刷新题目网格（避免搜索/过滤时输入框失焦）
+  renderProblemGridOnly(context) {
+    const grid = document.getElementById("problemGrid");
+    if (!grid) return;
+    const list = this.getFilteredProblems();
+    const emptyHtml = '<p style="color:var(--text-secondary);text-align:center;padding:40px">🎉 没有匹配的题目</p>';
+    if (context === 'bank') {
+      grid.innerHTML = list.map(p => this.renderStatCard(p)).join("") || emptyHtml;
+    } else {
+      grid.innerHTML = list.map(p => this.renderProblemCard(p)).join("") || emptyHtml;
+    }
   },
 
   // ==================== 历史记录 ====================
@@ -504,7 +516,7 @@ const App = {
     this._saveScroll();
     this._currentView = 'renderHistory';
     let history = [];
-    try { history = await Api.getTaskHistory(); } catch (e) {}
+    try { history = await Api.getTaskHistory(); } catch (e) { }
     const el = document.getElementById("view-dashboard");
     el.innerHTML = `
       <div class="app-layout">
@@ -512,8 +524,9 @@ const App = {
         <main class="app-main">
           <div class="section-header"><h2>历史记录</h2></div>
           ${history.length === 0 ? '<div class="empty-state">暂无历史记录</div>' : history.map(t => {
-            const pct = Math.round(t.completed.length / t.problems.length * 100);
-            return `
+      const tTotal = t.problems.length;
+      const pct = tTotal > 0 ? Math.round(t.completed.length / tTotal * 100) : 0;
+      return `
               <div class="history-card glass-card">
                 <div class="history-header">
                   <h4>${t.task_date}</h4>
@@ -524,14 +537,14 @@ const App = {
                 </div>
                 <div class="history-problems">
                   ${t.problems.map(id => {
-                    const prob = this.problems.find(p => p.nowcoder_id === id);
-                    const done = t.completed.includes(id);
-                    return `<span class="history-prob ${done ? 'done' : ''}">#${id} ${prob?.title || ''}</span>`;
-                  }).join("")}
+        const prob = this.problems.find(p => p.nowcoder_id === id);
+        const done = t.completed.includes(id);
+        return `<span class="history-prob ${done ? 'done' : ''}">#${id} ${prob?.title || ''}</span>`;
+      }).join("")}
                 </div>
               </div>
             `;
-          }).join("")}
+    }).join("")}
         </main>
       </div>
     `;
@@ -673,7 +686,7 @@ const App = {
       <div class="group-page-content">
         <div class="group-header" style="margin-bottom:20px">
           <h3 style="margin:0">${data.groupName}</h3>
-          <p style="color:var(--text-secondary);margin:4px 0 0">组长: ${data.members.find(m=>m.isLeader)?.name||"暂无"}</p>
+          <p style="color:var(--text-secondary);margin:4px 0 0">组长: ${data.members.find(m => m.isLeader)?.name || "暂无"}</p>
         </div>
         <div class="table-wrapper" style="overflow-x:auto">
           <table class="data-table group-rank-table">

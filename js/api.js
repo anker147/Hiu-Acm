@@ -18,11 +18,27 @@ const Api = {
   async fetch(path, options = {}) {
     const headers = { "Content-Type": "application/json", ...options.headers };
     if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
-    const res = await fetch(`${API_BASE}${path}`, {
-      ...options, headers,
-      body: options.body ? JSON.stringify(options.body) : undefined
-    });
-    const data = await res.json();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    let res;
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        ...options, headers,
+        body: options.body ? JSON.stringify(options.body) : undefined,
+        signal: controller.signal
+      });
+    } catch (e) {
+      clearTimeout(timeoutId);
+      if (e.name === "AbortError") throw new Error("请求超时，请检查网络后重试");
+      throw new Error("网络连接失败，请检查网络");
+    }
+    clearTimeout(timeoutId);
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      throw new Error(`服务器响应异常（HTTP ${res.status}）`);
+    }
     if (!res.ok) throw new Error(data.error || "请求失败");
     return data;
   },
@@ -184,6 +200,13 @@ const Api = {
     });
   },
 
+  async adminBatchDeleteProblems(phone, taskDate, problemIds) {
+    return this.fetch(`/api/admin/users/${phone}/tasks/batch-delete`, {
+      method: "POST",
+      body: { taskDate, problemIds }
+    });
+  },
+
   async adminLoginLogs() {
     return this.fetch("/api/admin/login-logs");
   },
@@ -196,6 +219,13 @@ const Api = {
     return this.fetch("/api/admin/settings", {
       method: "PUT",
       body: settings
+    });
+  },
+
+  async adminResetData(scope = "all") {
+    return this.fetch("/api/admin/reset-data", {
+      method: "POST",
+      body: { scope }
     });
   }
 };

@@ -135,13 +135,14 @@ const Admin = {
     content.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-secondary)">加载中...</div>';
     let users = [];
     try { users = await Api.adminUsers(); } catch (e) { content.innerHTML = `<div class="empty-state">加载失败: ${e.message}</div>`; return; }
+    this._usersCache = users;
 
     content.innerHTML = `
       <div class="admin-section">
         <h2>用户管理</h2>
         <div class="section-toolbar">
-          <button class="btn-primary" onclick="Admin.showAddUser()">+ 添加用户</button>
-          <button class="btn-primary" onclick="Admin.showBatchImport()">+ 批量导入</button>
+          <button class="btn-primary" onclick="Admin.showAddUser()">➕ 添加用户</button>
+          <button class="btn-secondary" onclick="Admin.showBatchImport()">📥 批量导入</button>
         </div>
         <div id="batchImportPanel"></div>
         <div style="overflow-x:auto">
@@ -158,10 +159,10 @@ const Admin = {
                   <td>${u.codeExpiry || '-'}</td>
                   <td>${(u.createdAt||'').slice(0,10)}</td>
                   <td class="action-cell">
-                    <button class="btn-small" onclick="Admin.showEditUser('${u.phone}','${u.name}','${u.codeType}')">编辑</button>
-                    <button class="btn-small" onclick="Admin.showUserTasks('${u.phone}','${u.name}')">题单</button>
-                    <button class="btn-small" onclick="Admin.clearDayTasks('${u.phone}')">清空当日题单</button>
-                    <button class="btn-small btn-danger" onclick="Admin.deleteUser('${u.phone}')">删除账号</button>
+                    <button class="btn-small" onclick="Admin.showEditUser('${u.phone}')">✏ 编辑</button>
+                    <button class="btn-small" onclick="Admin.showUserTasks('${u.phone}')">📋 题单</button>
+                    <button class="btn-small btn-warn" onclick="Admin.clearDayTasks('${u.phone}')">🧹 清空当日</button>
+                    <button class="btn-small btn-danger" onclick="Admin.deleteUser('${u.phone}')">🗑 删除</button>
                   </td>
                 </tr>
               `).join("")}
@@ -205,7 +206,10 @@ const Admin = {
     } catch (e) { alert(e.message); }
   },
 
-  showEditUser(phone, name, codeType) {
+  showEditUser(phone) {
+    const u = (this._usersCache || []).find(x => x.phone === phone) || {};
+    const name = u.name || "";
+    const codeType = u.codeType || "permanent";
     const panel = document.getElementById("editUserPanel");
     if (!panel) return;
     panel.innerHTML = `
@@ -264,7 +268,9 @@ const Admin = {
     } catch (e) { alert(e.message); }
   },
 
-  async showUserTasks(phone, name) {
+  async showUserTasks(phone) {
+    const u = (this._usersCache || []).find(x => x.phone === phone) || {};
+    const name = u.name || phone;
     const panel = document.getElementById("userTasksPanel");
     if (!panel) return;
     panel.innerHTML = '<div style="padding:10px;color:var(--text-secondary)">加载中...</div>';
@@ -276,6 +282,7 @@ const Admin = {
           <h3>${name} 的题单记录</h3>
           <div style="margin-bottom:12px">
             <button class="btn-small" onclick="Admin.batchCompleteAll('${phone}')">一键标记所选完成</button>
+            <button class="btn-small btn-danger" onclick="Admin.batchDeleteProblems('${phone}')">🗑 删除勾选题目</button>
             <button class="btn-small" onclick="Admin.selectAllProblems('${phone}')">全选</button>
             <button class="btn-small" onclick="Admin.deselectAllProblems('${phone}')">取消全选</button>
           </div>
@@ -292,7 +299,7 @@ const Admin = {
                       <input type="checkbox" class="task-prob-check" value="${id}" data-date="${t.task_date}" ${(t.completed || []).includes(id)?'disabled':''}>
                       #${id}
                     </label>
-                    <button class="btn-small btn-danger" style="padding:1px 6px;font-size:10px;line-height:1.4" onclick="Admin.deleteTaskProblem('${phone}','${t.task_date}',${id})" title="删除此题">×</button>
+                    <button class="btn-small btn-danger" style="padding:1px 6px;font-size:10px;line-height:1.4" onclick="Admin.deleteTaskProblem('${phone}','${t.task_date}','${id}')" title="删除此题">×</button>
                   </span>
                 `).join("")}
               </div>
@@ -319,7 +326,7 @@ const Admin = {
     checked.forEach(cb => {
       const date = cb.dataset.date;
       if (!byDate[date]) byDate[date] = [];
-      byDate[date].push(parseInt(cb.value));
+      byDate[date].push(String(cb.value));
     });
     try {
       let totalSuccess = 0, totalSkipped = 0;
@@ -329,15 +336,37 @@ const Admin = {
         totalSkipped += res.skipped.length;
       }
       alert(`完成 ${totalSuccess} 题${totalSkipped > 0 ? `，跳过 ${totalSkipped} 题（已标记）` : ''}`);
-      this.showUserTasks(phone, "");
+      this.showUserTasks(phone);
+    } catch (e) { alert(e.message); }
+  },
+
+  async batchDeleteProblems(phone) {
+    const checked = document.querySelectorAll('.task-prob-check:checked');
+    if (checked.length === 0) { alert("请先勾选题目"); return; }
+    if (!confirm(`确定删除勾选的 ${checked.length} 道题目？此操作不可撤销！`)) return;
+    // 按日期分组
+    const byDate = {};
+    checked.forEach(cb => {
+      const date = cb.dataset.date;
+      if (!byDate[date]) byDate[date] = [];
+      byDate[date].push(String(cb.value));
+    });
+    try {
+      let totalRemoved = 0;
+      for (const [date, ids] of Object.entries(byDate)) {
+        const res = await Api.adminBatchDeleteProblems(phone, date, ids);
+        totalRemoved += res.removed || 0;
+      }
+      alert(`已删除 ${totalRemoved} 道题目`);
+      this.showUserTasks(phone);
     } catch (e) { alert(e.message); }
   },
 
   async deleteTaskProblem(phone, taskDate, problemId) {
     if (!confirm(`确定删除 ${phone} 在 ${taskDate} 的题目 #${problemId}?`)) return;
     try {
-      await Api.adminDeleteTaskProblem(phone, taskDate, problemId);
-      this.showUserTasks(phone, "");
+      await Api.adminDeleteTaskProblem(phone, taskDate, String(problemId));
+      this.showUserTasks(phone);
     } catch (e) { alert(e.message); }
   },
 
@@ -347,12 +376,13 @@ const Admin = {
     content.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-secondary)">加载中...</div>';
     let groups = [];
     try { groups = await Api.adminGroups(); } catch (e) { content.innerHTML = `<div class="empty-state">加载失败: ${e.message}</div>`; return; }
+    this._groupsCache = groups;
 
     content.innerHTML = `
       <div class="admin-section">
         <h2>组织管理</h2>
         <div class="section-toolbar">
-          <button class="btn-primary" onclick="Admin.showAddGroup()">+ 新建小组</button>
+          <button class="btn-primary" onclick="Admin.showAddGroup()">➕ 新建小组</button>
         </div>
         <div class="group-cards">
           ${groups.map(g => `
@@ -364,7 +394,8 @@ const Admin = {
                 <p>人数: <strong>${g.members.length}</strong></p>
               </div>
               <div class="group-actions">
-                <button class="btn-small" onclick="Admin.editGroup(${JSON.stringify(g).replace(/"/g,'&quot;')})">编辑</button>
+                <button class="btn-small" onclick="Admin.editGroup(${g.id})">✏ 编辑</button>
+                <button class="btn-small btn-danger" onclick="Admin.deleteGroup(${g.id})">🗑 删除</button>
               </div>
             </div>
           `).join("")}
@@ -408,7 +439,9 @@ const Admin = {
     } catch (e) { alert(e.message); }
   },
 
-  async editGroup(g) {
+  async editGroup(id) {
+    const g = (this._groupsCache || []).find(x => x.id === id);
+    if (!g) { alert("小组数据不存在，请刷新后重试"); return; }
     const panel = document.getElementById("groupEditPanel");
     if (!panel) return;
     let users = [];
@@ -422,7 +455,7 @@ const Admin = {
         <div class="input-group"><label class="input-label">组员（可多选）</label><select id="editGroupMembers" class="input-field" multiple style="min-height:120px">${uOpts}</select></div>
         <div class="form-actions">
           <button class="btn-primary" onclick="Admin.saveGroup(${g.id})">保存</button>
-          <button class="btn-danger" onclick="Admin.deleteGroup(${g.id},'${g.name}')">删除小组</button>
+          <button class="btn-danger" onclick="Admin.deleteGroup(${g.id})">删除小组</button>
           <button class="btn-secondary" onclick="document.getElementById('groupEditPanel').innerHTML=''">取消</button>
         </div>
       </div>
@@ -441,7 +474,9 @@ const Admin = {
     } catch (e) { alert(e.message); }
   },
 
-  async deleteGroup(id, name) {
+  async deleteGroup(id) {
+    const g = (this._groupsCache || []).find(x => x.id === id);
+    const name = g ? g.name : "该小组";
     if (!confirm(`确定要删除小组「${name}」吗？`)) return;
     try {
       await Api.adminDeleteGroup(id);
@@ -541,6 +576,7 @@ const Admin = {
       <div class="admin-section">
         <h2>系统设置</h2>
         <div class="settings-card glass-card">
+          <h3 class="settings-section-title">🔑 管理员账户</h3>
           <div class="setting-item">
             <label>管理员密码</label>
             <div class="setting-input-row">
@@ -548,6 +584,9 @@ const Admin = {
               <button class="btn-primary" onclick="Admin.saveSettings()">修改密码</button>
             </div>
           </div>
+        </div>
+        <div class="settings-card glass-card" style="margin-top:16px">
+          <h3 class="settings-section-title">📋 题单规则</h3>
           <div class="setting-item">
             <label>每日必选题数</label>
             <input id="setMandatory" type="number" class="input-field" value="${settings.daily_mandatory_count || '2'}" style="width:100px">
@@ -561,6 +600,33 @@ const Admin = {
             <input id="setThreshold" type="number" class="input-field" value="${settings.mandatory_threshold || '1'}" style="width:100px">
           </div>
           <button class="btn-primary" onclick="Admin.saveSettings()">保存设置</button>
+        </div>
+        <div class="settings-card glass-card danger-zone" style="margin-top:16px">
+          <h3 class="settings-section-title danger-title">⚠ 危险操作</h3>
+          <p class="danger-desc">以下操作不可撤销，请谨慎执行。</p>
+          <div class="danger-actions">
+            <div class="danger-action-item">
+              <div>
+                <strong>重置题库统计</strong>
+                <p class="danger-sub">将所有题目的「被选次数」和「完成次数」归零</p>
+              </div>
+              <button class="btn-small btn-danger" onclick="Admin.resetStats()">重置统计</button>
+            </div>
+            <div class="danger-action-item">
+              <div>
+                <strong>清空所有题单</strong>
+                <p class="danger-sub">删除所有学员的全部每日题单记录</p>
+              </div>
+              <button class="btn-small btn-danger" onclick="Admin.resetTasks()">清空题单</button>
+            </div>
+            <div class="danger-action-item">
+              <div>
+                <strong>一键全部重置</strong>
+                <p class="danger-sub">同时重置题库统计 + 清空所有题单（推荐新学期开始时使用）</p>
+              </div>
+              <button class="btn-danger-solid" onclick="Admin.resetAll()">全部重置</button>
+            </div>
+          </div>
         </div>
       </div>
     `;
@@ -580,6 +646,33 @@ const Admin = {
       await Api.adminUpdateSettings(settings);
       alert("保存成功");
       if (pwd) pwd.value = "";
+    } catch (e) { alert(e.message); }
+  },
+
+  async resetStats() {
+    if (!confirm("确定重置题库统计？\n所有题目的「被选次数」和「完成次数」将归零，此操作不可撤销！")) return;
+    try {
+      const r = await Api.adminResetData("stats");
+      alert(`已重置 ${r.stats} 条题目统计`);
+    } catch (e) { alert(e.message); }
+  },
+
+  async resetTasks() {
+    if (!confirm("确定清空所有题单？\n所有学员的全部每日题单记录将被删除，此操作不可撤销！")) return;
+    try {
+      const r = await Api.adminResetData("tasks");
+      alert(`已清空 ${r.tasks} 条题单记录`);
+    } catch (e) { alert(e.message); }
+  },
+
+  async resetAll() {
+    const confirmed = confirm("⚠ 警告：即将执行全部重置！\n\n这将同时：\n1. 重置所有题目统计为0\n2. 清空所有学员的全部题单\n\n此操作不可撤销，确定继续？");
+    if (!confirmed) return;
+    const confirmed2 = confirm("再次确认：真的要全部重置吗？");
+    if (!confirmed2) return;
+    try {
+      const r = await Api.adminResetData("all");
+      alert(`已完成：重置 ${r.stats} 条统计，清空 ${r.tasks} 条题单`);
     } catch (e) { alert(e.message); }
   },
 

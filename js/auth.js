@@ -1,4 +1,12 @@
 // HIU-ACM 认证模块 - 使用 Cloudflare Worker API
+
+// base64url / 去除 padding 的 base64 安全解码（补齐 padding 后 atob）
+function decodeJwtPayload(part) {
+  let s = part.replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  return JSON.parse(atob(s));
+}
+
 const Auth = {
   async login(phone, code) {
     try {
@@ -33,7 +41,7 @@ const Auth = {
       if (!token) return false;
       const parts = token.split(".");
       if (parts.length !== 3) return false;
-      const payload = JSON.parse(atob(parts[1]));
+      const payload = decodeJwtPayload(parts[1]);
       return !!payload.isAdmin;
     } catch { return false; }
   },
@@ -44,7 +52,7 @@ const Auth = {
       if (!token) return null;
       const parts = token.split(".");
       if (parts.length !== 3) return null;
-      const payload = JSON.parse(atob(parts[1]));
+      const payload = decodeJwtPayload(parts[1]);
       return payload.phone;
     } catch { return null; }
   }
