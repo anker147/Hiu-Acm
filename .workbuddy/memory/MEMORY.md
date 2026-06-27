@@ -18,6 +18,8 @@
 - **题库重置接口**：`POST /api/admin/reset-data`，body `{ scope: "stats"|"tasks"|"all" }`，管理端设置页危险操作区调用。
 
 ## 部署注意
+- **git push ≠ wrangler deploy（重要！）**：`git push` 只更新 GitHub 仓库和 GitHub Pages 前端，**不会**自动部署 Cloudflare Worker。修改 `workers/api.js` 后必须单独运行 `npx wrangler deploy workers/api.js --env=""` 部署后端，否则线上 Worker 是旧代码，新接口会报"接口不存在"。本地调试时前端是最新代码但 Worker 可能是旧代码，表现就是"前端发了新请求但后端不认识"。
 - 改后端表结构后**必须先跑 migration 再部署 Worker**，否则 INSERT 新列会报错。
 - `wrangler.toml` 的 `JWT_SECRET` 当前明文在 `[vars]`，建议改用 `wrangler secret put JWT_SECRET`（代码已兼容 `env.JWT_SECRET`）。
 - 本地预览：`python -m http.server 8000`（前端可看，API 走远程 worker）。
+- 部署 Worker 后提醒用户 **Ctrl+F5 强制刷新浏览器**，避免前端 JS 缓存。
