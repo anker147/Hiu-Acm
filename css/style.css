@@ -380,6 +380,42 @@ select.input-field { padding-left:12px; cursor:none; appearance:none;
 .selection-footer { text-align:center; margin-top:20px; padding-bottom:40px; }
 .selection-footer .btn-primary { padding:14px 48px; font-size:16px; }
 
+/* 悬浮选题按钮条：固定在视口底部，滚动时始终可见 */
+.floating-footer {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 14px 20px;
+  margin: 0;
+  background: var(--bg-glass, rgba(255,255,255,0.7));
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.08);
+  z-index: 50;
+}
+.floating-footer-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.floating-footer-info strong { color: var(--text); }
+.floating-footer .btn-primary { padding:12px 32px; font-size:15px; }
+.floating-footer .btn-secondary { padding:12px 24px; font-size:14px; }
+@media (max-width: 600px) {
+  .floating-footer { flex-wrap: wrap; gap:10px; padding:10px 12px; }
+  .floating-footer-info { font-size: 12px; gap:6px; }
+  .floating-footer .btn-primary { padding:10px 20px; font-size:14px; }
+  .floating-footer .btn-secondary { padding:10px 16px; font-size:13px; }
+}
+
 .today-tasks .section-header { display:flex; align-items:center; gap:20px; }
 .progress-ring-wrapper { position:relative; }
 .progress-ring {

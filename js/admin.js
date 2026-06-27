@@ -496,32 +496,35 @@ const Admin = {
         <h2>登录日志</h2>
         <div style="overflow-x:auto">
           <table class="data-table full-width">
-            <thead><tr><th>手机号</th><th>IP</th><th>归属地</th><th>设备</th><th>登录时间</th><th></th></tr></thead>
+            <thead><tr><th>手机号</th><th>IP</th><th>归属地</th><th>设备/浏览器</th><th>指纹</th><th>登录时间</th><th></th></tr></thead>
             <tbody>
               ${logs.map((l,i) => `
                 <tr class="log-row" onclick="Admin.toggleLogDetail(${i})" style="cursor:pointer">
                   <td>${l.phone}</td>
                   <td>${l.ip || '-'}</td>
                   <td>${l.region || '-'}</td>
-                  <td>${l.device || '-'}</td>
+                  <td>${l.uaParsed || l.device || '-'}</td>
+                  <td style="font-family:monospace;font-size:11px;color:var(--text-secondary)">${l.fingerprint ? l.fingerprint.slice(0,8) : '-'}</td>
                   <td>${l.loginAt || '-'}</td>
                   <td style="font-size:12px;color:var(--text-secondary)">▸</td>
                 </tr>
                 <tr class="log-detail-row" id="logDetail_${i}" style="display:none">
-                  <td colspan="6" style="padding:12px 16px;background:var(--log-detail-bg);border-bottom:1px solid var(--border)">
+                  <td colspan="7" style="padding:12px 16px;background:var(--log-detail-bg);border-bottom:1px solid var(--border)">
                     <div style="display:grid;gap:6px;font-size:12px;color:var(--text-secondary)">
                       <div><strong>手机号:</strong> ${l.phone}</div>
                       <div><strong>IP:</strong> ${l.ip}</div>
                       <div><strong>归属地:</strong> ${l.region}</div>
-                      <div><strong>设备:</strong> ${l.device}</div>
+                      <div><strong>设备:</strong> ${l.uaParsed || l.device || '-'}</div>
+                      <div><strong>指纹:</strong> <span style="font-family:monospace">${l.fingerprint || '-'}</span></div>
                       <div><strong>登录时间:</strong> ${l.loginAt}</div>
                       <div style="color:var(--text-secondary);word-break:break-all"><strong>UA:</strong> ${l.userAgent || '-'}</div>
+                      ${l.fpDetail ? `<details style="margin-top:4px"><summary style="cursor:pointer;color:var(--text-secondary)">指纹详情</summary><pre style="font-size:11px;background:rgba(0,0,0,0.04);padding:8px;border-radius:4px;white-space:pre-wrap;word-break:break-all">${JSON.stringify(l.fpDetail, null, 2)}</pre></details>` : ''}
                     </div>
                     <button class="btn-small" style="margin-top:8px" onclick="event.stopPropagation();Admin.viewUserLogs('${l.phone}')">查看该用户全部日志</button>
                   </td>
                 </tr>
               `).join("")}
-              ${logs.length === 0 ? '<tr><td colspan="6" class="empty-text">暂无记录</td></tr>' : ''}
+              ${logs.length === 0 ? '<tr><td colspan="7" class="empty-text">暂无记录</td></tr>' : ''}
             </tbody>
           </table>
         </div>
@@ -545,18 +548,19 @@ const Admin = {
           <button class="btn-secondary" style="margin-bottom:12px" onclick="Admin.renderLogs()">← 返回全部日志</button>
           <div style="overflow-x:auto">
             <table class="data-table full-width">
-              <thead><tr><th>IP</th><th>归属地</th><th>设备</th><th>登录时间</th><th>User-Agent</th></tr></thead>
+              <thead><tr><th>IP</th><th>归属地</th><th>设备/浏览器</th><th>指纹</th><th>登录时间</th><th>User-Agent</th></tr></thead>
               <tbody>
                 ${logs.map(l => `
                   <tr>
                     <td>${l.ip}</td>
                     <td>${l.region}</td>
-                    <td>${l.device}</td>
+                    <td>${l.uaParsed || l.device || '-'}</td>
+                    <td style="font-family:monospace;font-size:11px;color:var(--text-secondary)">${l.fingerprint || '-'}</td>
                     <td>${l.loginAt}</td>
                     <td class="ua-cell" title="${(l.userAgent||'').replace(/"/g,'')}">${l.userAgent || '-'}</td>
                   </tr>
                 `).join("")}
-                ${logs.length === 0 ? '<tr><td colspan="5" class="empty-text">暂无记录</td></tr>' : ''}
+                ${logs.length === 0 ? '<tr><td colspan="6" class="empty-text">暂无记录</td></tr>' : ''}
               </tbody>
             </table>
           </div>

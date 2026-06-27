@@ -31,12 +31,15 @@ export async function onRequest(context) {
   // 透传请求头，但更新 Host
   const headers = new Headers(request.headers);
   headers.set("Host", new URL(UPSTREAM).host);
-  // 让上游看到真实客户端 IP（与原 Worker 取 CF-Connecting-IP 一致）
-  headers.delete("CF-Connecting-IP");
-  try {
-    const realIp = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Real-IP");
-    if (realIp) headers.set("CF-Connecting-IP", realIp);
-  } catch { /* ignore */ }
+  // 关键：Cloudflare 在 Pages→Worker 转发时会重写 CF-Connecting-IP，
+  // 导致上游 Worker 拿到的是 Pages 节点 IP 而非真实用户 IP。
+  // 解决：用自定义头 X-Real-Client-IP 透传真实 IP（不会被 Cloudflare 重写）。
+  const realIp = request.headers.get("CF-Connecting-IP")
+    || request.headers.get("X-Real-IP")
+    || "";
+  if (realIp) {
+    headers.set("X-Real-Client-IP", realIp);
+  }
 
   // 构造转发请求
   const init = {

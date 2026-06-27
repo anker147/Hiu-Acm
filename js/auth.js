@@ -19,7 +19,15 @@ const tokenStore = {
 const Auth = {
   async login(phone, code) {
     try {
-      const user = await Api.login(phone, code);
+      // 采集浏览器指纹（用于登录日志安全审计，不含敏感信息）
+      let fingerprint = "";
+      let fpDetail = null;
+      try {
+        const fp = await Fingerprint.collect();
+        fingerprint = fp.fingerprint;
+        fpDetail = fp.detail;
+      } catch { /* 指纹采集失败不影响登录 */ }
+      const user = await Api.login(phone, code, { fingerprint, fpDetail });
       return user;
     } catch (e) {
       throw new Error(e.message || "登录失败");

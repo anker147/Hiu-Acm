@@ -50,10 +50,10 @@ const Api = {
   },
 
   // ============ 认证 ============
-  async login(phone, code) {
+  async login(phone, code, meta = {}) {
     const data = await this.fetch("/api/login", {
       method: "POST",
-      body: { phone, code }
+      body: { phone, code, fingerprint: meta.fingerprint || "", fpDetail: meta.fpDetail || null }
     });
     this.setToken(data.token);
     return data.user;

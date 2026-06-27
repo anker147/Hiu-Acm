@@ -35,25 +35,44 @@ function beijingTimeISO() {
   const d = new Date(Date.now() + 8 * 3600000);
   return d.toISOString().replace("Z", "+08:00");
 }
-// IP 归属地查询 — 使用 ip-api.com 免费 API
+// IP 归属地查询 — 多源 fallback，提升稳定性
+// 顺序：ip-api.com（中文）→ ipapi.co（英文）→ "未知"
 async function ipToLocation(ip) {
   if (!ip) return "未知";
   // 内网 IP
   if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|0\.)/.test(ip)) return "局域网";
+
+  // 源 1：ip-api.com（429/限制较严但中文友好）
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
     const res = await fetch(`http://ip-api.com/json/${ip}?lang=zh-CN`, { signal: controller.signal });
     clearTimeout(timeout);
-    if (!res.ok) return "未知";
-    const data = await res.json();
-    if (data.status !== "success") return "未知";
-    return [data.country, data.regionName, data.city].filter(Boolean).join("-") || "未知";
-  } catch {
-    return "未知";
-  }
+    if (res.ok) {
+      const data = await res.json();
+      if (data.status === "success") {
+        return [data.country, data.regionName, data.city].filter(Boolean).join("-") || "未知";
+      }
+    }
+  } catch { /* 继续尝试 fallback */ }
+
+  // 源 2：ipapi.co（HTTPS，英文，无中文但稳定）
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`https://ipapi.co/${ip}/json/`, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && !data.error && data.country_name) {
+        return [data.country_name, data.region, data.city].filter(Boolean).join("-") || "未知";
+      }
+    }
+  } catch { /* 继续尝试 fallback */ }
+
+  return "未知";
 }
-// UA 解析设备类型
+// UA 解析设备类型（简短，用于 device 列）
 function parseUA(ua) {
   if (!ua) return "未知设备";
   const s = ua.toLowerCase();
@@ -67,6 +86,62 @@ function parseUA(ua) {
   if (s.includes("firefox")) return "Firefox浏览器";
   if (s.includes("safari")) return "Safari浏览器";
   return "其他设备";
+}
+
+// UA 详细解析：返回 { os, browser, device }，组合成易读字符串
+function parseUADetail(ua) {
+  if (!ua) return { os: "未知", browser: "未知", device: "未知" };
+  const s = ua.toLowerCase();
+  // OS
+  let os = "未知";
+  if (s.includes("windows nt 10")) os = "Windows 10/11";
+  else if (s.includes("windows nt 6.3")) os = "Windows 8.1";
+  else if (s.includes("windows nt 6.2")) os = "Windows 8";
+  else if (s.includes("windows nt 6.1")) os = "Windows 7";
+  else if (s.includes("windows")) os = "Windows";
+  else if (s.includes("iphone") || s.includes("ipad")) {
+    const m = ua.match(/OS (\d+[_\d]*)/i);
+    os = "iOS " + (m ? m[1].replace(/_/g, ".") : "?");
+  }
+  else if (s.includes("android")) {
+    const m = ua.match(/Android (\d+[\.\d]*)/i);
+    os = "Android " + (m ? m[1] : "?");
+  }
+  else if (s.includes("mac os x")) {
+    const m = ua.match(/Mac OS X (\d+[_\d]*)/i);
+    os = "macOS " + (m ? m[1].replace(/_/g, ".") : "?");
+  }
+  else if (s.includes("mac os")) os = "macOS";
+  else if (s.includes("linux")) os = "Linux";
+  // Browser
+  let browser = "未知";
+  if (s.includes("micromessenger")) browser = "微信内置";
+  else if (s.includes("edg/")) browser = "Edge";
+  else if (s.includes("chrome/") && !s.includes("chromium")) browser = "Chrome";
+  else if (s.includes("firefox/")) browser = "Firefox";
+  else if (s.includes("safari/") && !s.includes("chrome")) browser = "Safari";
+  else if (s.includes("opr/") || s.includes("opera")) browser = "Opera";
+  // Browser version
+  let browserVer = "";
+  if (browser === "Chrome") { const m = ua.match(/Chrome\/([\d.]+)/); if (m) browserVer = m[1]; }
+  else if (browser === "Edge") { const m = ua.match(/Edg\/([\d.]+)/); if (m) browserVer = m[1]; }
+  else if (browser === "Firefox") { const m = ua.match(/Firefox\/([\d.]+)/); if (m) browserVer = m[1]; }
+  else if (browser === "Safari") { const m = ua.match(/Version\/([\d.]+)/); if (m) browserVer = m[1]; }
+  // Device
+  let device = "桌面端";
+  if (s.includes("iphone")) device = "iPhone";
+  else if (s.includes("ipad")) device = "iPad";
+  else if (s.includes("android")) {
+    if (s.includes("mobile")) device = "Android手机";
+    else device = "Android平板";
+  }
+  else if (s.includes("mobile")) device = "移动设备";
+  return {
+    os,
+    browser: browser + (browserVer ? " " + browserVer.split(".").slice(0, 2).join(".") : ""),
+    device,
+    summary: `${device} / ${os} / ${browser}`
+  };
 }
 
 async function hmacSign(payload, secret) {
@@ -766,11 +841,27 @@ async function enrichLog(db, l) {
       await db.prepare("UPDATE login_logs SET region = ? WHERE id = ?").bind(region, l.id).run();
     } catch { /* 回写失败忽略 */ }
   }
+  // 历史记录的 ua_parsed 可能为空，按需补全
+  let uaParsed = l.ua_parsed || "";
+  if (!uaParsed && l.user_agent) {
+    uaParsed = parseUADetail(l.user_agent).summary;
+    try {
+      await db.prepare("UPDATE login_logs SET ua_parsed = ? WHERE id = ?").bind(uaParsed, l.id).run();
+    } catch { /* 回写失败忽略 */ }
+  }
+  let fpDetail = null;
+  if (l.fp_detail) {
+    try { fpDetail = JSON.parse(l.fp_detail); } catch { fpDetail = null; }
+  }
   return {
+    id: l.id,
     phone: l.phone,
     ip: l.ip || "-",
     region,
     device: l.device || parseUA(l.user_agent || ""),
+    uaParsed,
+    fingerprint: l.fingerprint || "",
+    fpDetail,
     userAgent: l.user_agent || "-",
     loginAt: l.login_at || "-"
   };
@@ -867,22 +958,40 @@ async function handleRequest(request, db) {
     try { body = await request.json(); } catch { /* no body */ }
   }
 
-  // 登录：只调用一次 handleLogin，登录成功后记录日志（含 IP 归属地/设备，避免查询时实时调用外部 API）
+  // 登录：只调用一次 handleLogin，登录成功后记录日志（含 IP 归属地/设备/指纹）
   if (path === "/api/login" && method === "POST") {
-    const ip = request.headers.get("CF-Connecting-IP") || "";
+    // 取真实客户端 IP
+    // 优先级：X-Real-Client-IP（Pages Function 反代透传）> CF-Connecting-IP（直连场景）> X-Forwarded-For
+    const ip = request.headers.get("X-Real-Client-IP")
+      || request.headers.get("CF-Connecting-IP")
+      || request.headers.get("X-Real-IP")
+      || request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim()
+      || "";
     const ua = request.headers.get("User-Agent") || "";
+    const fingerprint = body.fingerprint || "";
+    const fpDetail = body.fpDetail || null;
     const result = await handleLogin(db, body);
+    // 日志记录：失败时打印错误到 console.error，便于排查（不再静默吞）
     try {
       const resp = result.clone();
       const data = await resp.json();
       if (data.token && body.phone) {
+        const uaDetail = parseUADetail(ua);
         const device = parseUA(ua);
         const region = await ipToLocation(ip);
         await db.prepare(
-          "INSERT INTO login_logs (phone, ip, user_agent, login_at, region, device) VALUES (?, ?, ?, ?, ?, ?)"
-        ).bind(body.phone, ip, ua, beijingTime(), region, device).run();
+          "INSERT INTO login_logs (phone, ip, user_agent, login_at, region, device, fingerprint, fp_detail, ua_parsed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).bind(
+          body.phone, ip, ua, beijingTime(), region, device,
+          fingerprint,
+          fpDetail ? JSON.stringify(fpDetail) : "",
+          uaDetail.summary
+        ).run();
       }
-    } catch { /* 日志记录失败不影响登录返回 */ }
+    } catch (logErr) {
+      // 日志记录失败不影响登录返回，但要打印错误便于排查
+      console.error("[login_logs] INSERT 失败:", logErr?.message || logErr);
+    }
     return result;
   }
 

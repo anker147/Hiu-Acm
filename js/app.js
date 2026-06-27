@@ -264,25 +264,24 @@ const App = {
               <input class="input-field" placeholder="搜索题号/标题..." value="${this.searchQuery}" oninput="App.handleSearch(this.value)">
             </div>
           </div>` : ''}
-          <div class="selection-stats">
-            <span>已选 <strong>${this.selected.length}</strong> 道</span>
-            <span class="stat-sep">|</span>
-            <span>新题 <strong>${newCount}</strong>/2 道</span>
-            ${!isPhase1 ? `<span class="stat-sep">|</span><span>剩余可选 <strong>${18 - this.selected.filter(id => (this.stats[id]?.selectedCount || 0) >= 1).length}</strong> 道</span>` : ''}
-          </div>
           <div class="problem-grid" id="problemGrid">
             ${displayProblems.map(p => this.renderProblemCard(p)).join("") || '<p style="color:var(--text-secondary);text-align:center;padding:40px">🎉 所有题目都已被选择过！点击下方按钮进入全部题目选择。</p>'}
           </div>
-          <div class="selection-footer">
-            ${isPhase1 ? `
-              <button class="btn-primary" onclick="App.finishPhase1()" ${newCount < 2 ? 'disabled style="opacity:0.5;cursor:not-allowed"' : ''}>
-                继续选择（已选 ${newCount} 道新题）→
-              </button>` : `
-              <button class="btn-secondary" onclick="App.selectionPhase=0;App.renderSelection()">返回新题选择</button>
-              <button class="btn-primary" id="submitSelection" onclick="App.submitSelection()">确认题单（共 ${this.selected.length} 道）</button>
-            `}
-          </div>
         </main>
+        <div class="selection-footer floating-footer">
+          <div class="floating-footer-info">
+            <span>已选 <strong>${this.selected.length}</strong> 道</span>
+            <span class="stat-sep">|</span>
+            <span>新题 <strong>${newCount}</strong>/2 道</span>
+          </div>
+          ${isPhase1 ? `
+            <button class="btn-primary" onclick="App.finishPhase1()" ${newCount < 2 ? 'disabled style="opacity:0.5;cursor:not-allowed"' : ''}>
+              继续选择（已选 ${newCount} 道新题）→
+            </button>` : `
+            <button class="btn-secondary" onclick="App.selectionPhase=0;App.renderSelection()">返回新题选择</button>
+            <button class="btn-primary" id="submitSelection" onclick="App.submitSelection()">确认题单（共 ${this.selected.length} 道）</button>
+          `}
+        </div>
       </div>
     `;
     this._restoreScroll();
@@ -456,11 +455,17 @@ const App = {
     this._currentView = 'renderBank';
     const tags = this.getAllTags();
     const el = document.getElementById("view-dashboard");
+    const contestUrl = 'https://ac.nowcoder.com/acm/contest/137328';
     el.innerHTML = `
       <div class="app-layout">
         ${this.getNavHTML('bank')}
         <main class="app-main">
-          <div class="section-header"><h2>题库浏览</h2><p>共 ${this.problems.length} 道题目</p></div>
+          <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+            <div><h2>题库浏览</h2><p>共 ${this.problems.length} 道题目</p></div>
+            <button class="btn-primary" style="padding:10px 20px;font-size:14px" onclick="window.open('${contestUrl}', '_blank')">
+              🚀 去报名比赛
+            </button>
+          </div>
           <div class="filter-bar">
             <div class="filter-tags" id="viewFilterTags">
               <button class="tag-btn ${this.filterTag === '全部' ? 'active' : ''}" onclick="App.setFilterView('全部')">全部</button>
